@@ -5,7 +5,7 @@ import {
   ChevronDown, Users, Menu, Database, FileDown, RefreshCw,
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
 } from 'lucide-react';
-import { supabase } from './supabase';
+import { supabase as supabaseInit, reinitSupabase } from './supabase';
 import type { Candidate, CandidateGroup, Toast } from './types';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -86,6 +86,52 @@ function SettingsModal({ onClose, onSave }: {
   const [url, setUrl] = useState(localStorage.getItem('sb_url') || '');
   const [key, setKey] = useState(localStorage.getItem('sb_key') || '');
   const [showKey, setShowKey] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const validateInputs = () => {
+    const u = url.trim();
+    const k = key.trim();
+    if (!u) return 'Vui lòng nhập Supabase Project URL';
+    if (!u.startsWith('https://')) return 'URL phải bắt đầu bằng https://';
+    if (!u.includes('.supabase.co')) return 'URL không đúng định dạng (phải chứa .supabase.co)';
+    if (!k) return 'Vui lòng nhập Anon Key';
+    if (!k.startsWith('eyJ')) return 'Anon Key không đúng định dạng (phải bắt đầu bằng eyJ...)';
+    return null;
+  };
+
+  const handleTest = async () => {
+    const err = validateInputs();
+    if (err) { setTestResult({ ok: false, msg: err }); return; }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const { createClient } = await import('@supabase/supabase-js');
+      const testClient = createClient(url.trim(), key.trim());
+      const { error } = await testClient.from('candidates').select('id').limit(1);
+      if (error) {
+        if (error.message.includes('relation') || error.message.includes('does not exist')) {
+          setTestResult({ ok: false, msg: '⚠️ Kết nối OK nhưng chưa tạo bảng! Hãy chạy SQL tạo bảng trong Supabase.' });
+        } else if (error.message.includes('Invalid API key') || error.message.includes('JWT')) {
+          setTestResult({ ok: false, msg: '❌ Anon Key không hợp lệ. Kiểm tra lại key trong Supabase → Settings → API.' });
+        } else {
+          setTestResult({ ok: false, msg: `❌ Lỗi: ${error.message}` });
+        }
+      } else {
+        setTestResult({ ok: true, msg: '✅ Kết nối thành công! Bảng candidates tồn tại.' });
+      }
+    } catch (e: any) {
+      setTestResult({ ok: false, msg: `❌ Không thể kết nối: ${e?.message || 'Kiểm tra lại URL'}` });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const handleSaveClick = () => {
+    const err = validateInputs();
+    if (err) { setTestResult({ ok: false, msg: err }); return; }
+    onSave(url, key);
+  };
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -106,35 +152,58 @@ function SettingsModal({ onClose, onSave }: {
             <input
               type="text"
               value={url}
-              onChange={e => setUrl(e.target.value)}
-              placeholder="https://xxxxxxxxxxxx.supabase.co"
+              onChange={e => { setUrl(e.target.value); setTestResult(null); }}
+              placeholder="https://abcdefghij.supabase.co"
               className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all"
             />
+            <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → Project URL</p>
           </div>
           <div>
-            <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Anon Key</label>
+            <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Anon Key (public)</label>
             <div className="relative">
               <input
                 type={showKey ? 'text' : 'password'}
                 value={key}
-                onChange={e => setKey(e.target.value)}
-                placeholder="eyJhbGci..."
+                onChange={e => { setKey(e.target.value); setTestResult(null); }}
+                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
                 className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 pr-12 text-sm font-medium outline-none focus:border-sky-400 transition-all"
               />
               <button onClick={() => setShowKey(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-300 hover:text-white transition-colors">
                 {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
               </button>
             </div>
+            <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → anon public</p>
           </div>
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1">
-            <p className="font-black text-white text-[11px] uppercase tracking-widest mb-2">📋 Hướng dẫn:</p>
-            <p>1. Vào <span className="text-sky-300 font-semibold">supabase.com</span> → Project → Settings → API</p>
-            <p>2. Copy <span className="text-sky-300 font-semibold">Project URL</span> và <span className="text-sky-300 font-semibold">anon public key</span></p>
-            <p>3. Chạy SQL bên dưới trong <span className="text-sky-300 font-semibold">SQL Editor</span> của Supabase</p>
+
+          {/* Test result */}
+          {testResult && (
+            <div className={cn(
+              'rounded-xl px-4 py-3 text-sm font-semibold',
+              testResult.ok ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' : 'bg-red-900/50 text-red-300 border border-red-700'
+            )}>
+              {testResult.msg}
+            </div>
+          )}
+
+          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1.5">
+            <p className="font-black text-white text-[11px] uppercase tracking-widest mb-2">📋 Hướng dẫn lấy thông tin:</p>
+            <p>1. Đăng nhập <span className="text-sky-300 font-semibold">supabase.com</span> → chọn Project</p>
+            <p>2. Vào <span className="text-sky-300 font-semibold">Project Settings → API</span></p>
+            <p>3. Copy <span className="text-sky-300 font-semibold">Project URL</span> (dạng https://xxx.supabase.co)</p>
+            <p>4. Copy <span className="text-sky-300 font-semibold">anon public</span> key (bắt đầu bằng eyJ...)</p>
           </div>
+
           <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 py-3 rounded-xl border border-white/20 text-white/60 hover:text-white hover:border-white/40 font-bold text-sm transition-all">Hủy</button>
-            <button onClick={() => onSave(url, key)} className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black text-sm transition-all shadow-lg">Lưu & Kết nối</button>
+            <button onClick={onClose} className="px-4 py-3 rounded-xl border border-white/20 text-white/60 hover:text-white hover:border-white/40 font-bold text-sm transition-all">Hủy</button>
+            <button onClick={handleTest} disabled={testing}
+              className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+              {testing ? <Loader2 size={14} className="animate-spin" /> : null}
+              {testing ? 'Đang kiểm tra...' : '🔍 Kiểm tra kết nối'}
+            </button>
+            <button onClick={handleSaveClick}
+              className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black text-sm transition-all shadow-lg">
+              Lưu & Kết nối
+            </button>
           </div>
         </div>
       </div>
@@ -392,6 +461,9 @@ export default function App() {
   const [activeView, setActiveView] = useState<'list' | 'stats'>('list');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // supabase client — có thể được reinit sau khi user lưu settings
+  const [sb, setSb] = useState(() => supabaseInit);
+
   const PER_PAGE = 50;
 
   // ── Show Toast ──
@@ -405,13 +477,13 @@ export default function App() {
 
   // ── Load candidates ──
   const loadCandidates = useCallback(async () => {
-    if (!supabase) {
+    if (!sb) {
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await sb
         .from('candidates')
         .select('*')
         .order('group_type', { ascending: true })
@@ -426,12 +498,11 @@ export default function App() {
     } finally {
       setLoading(false);
     }
-  }, [showToast]);
+  }, [sb, showToast]);
 
   useEffect(() => {
-    if (!supabase) {
+    if (!sb) {
       setLoading(false);
-      // Show settings if not configured
       const url = localStorage.getItem('sb_url');
       if (!url) setShowSettings(true);
       return;
@@ -439,39 +510,44 @@ export default function App() {
     loadCandidates();
 
     // Realtime subscription
-    const channel = supabase.channel('candidates_changes')
+    const channel = sb.channel('candidates_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'candidates' }, () => {
         loadCandidates();
       })
       .subscribe();
 
-    return () => { supabase?.removeChannel(channel); };
-  }, [loadCandidates]);
+    return () => { sb?.removeChannel(channel); };
+  }, [sb, loadCandidates]);
 
   // ── Save settings ──
   const handleSaveSettings = (url: string, key: string) => {
-    localStorage.setItem('sb_url', url);
-    localStorage.setItem('sb_key', key);
+    localStorage.setItem('sb_url', url.trim());
+    localStorage.setItem('sb_key', key.trim());
+    const newClient = reinitSupabase();
+    setSb(newClient);
     setShowSettings(false);
-    showToast('Đã lưu cấu hình. Tải lại trang để áp dụng.', 'info');
-    setTimeout(() => window.location.reload(), 1500);
+    if (newClient) {
+      showToast('✅ Đã kết nối Supabase thành công!', 'success');
+    } else {
+      showToast('❌ URL hoặc Key không hợp lệ', 'error');
+    }
   };
 
   // ── CRUD ──
   const handleSave = async (data: Partial<Candidate>) => {
-    if (!supabase) { showToast('Chưa kết nối Supabase', 'error'); return; }
+    if (!sb) { showToast('Chưa kết nối Supabase', 'error'); return; }
     if (!data.full_name?.trim()) { showToast('Vui lòng nhập tên ứng viên', 'error'); return; }
 
     showToast('Đang lưu...', 'loading');
     try {
       if (modal?.type === 'add') {
         const { id, ...rest } = data as Candidate;
-        const { error } = await supabase.from('candidates').insert([{ ...rest }]);
+        const { error } = await sb.from('candidates').insert([{ ...rest }]);
         if (error) throw error;
         showToast(`✅ Đã thêm: ${data.full_name}`, 'success');
       } else {
         const { id, created_at, ...rest } = data as Candidate;
-        const { error } = await supabase.from('candidates').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id!);
+        const { error } = await sb.from('candidates').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id!);
         if (error) throw error;
         showToast(`✅ Đã cập nhật: ${data.full_name}`, 'success');
       }
@@ -483,10 +559,10 @@ export default function App() {
   };
 
   const handleDelete = async () => {
-    if (!supabase || !deleteId) return;
+    if (!sb || !deleteId) return;
     showToast('Đang xóa...', 'loading');
     try {
-      const { error } = await supabase.from('candidates').delete().eq('id', deleteId);
+      const { error } = await sb.from('candidates').delete().eq('id', deleteId);
       if (error) throw error;
       setDeleteId(null);
       showToast('✅ Đã xóa ứng viên', 'success');
@@ -747,7 +823,7 @@ export default function App() {
             )}
 
             {/* ── No connection warning ── */}
-            {!supabase && !loading && (
+            {!sb && !loading && (
               <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 flex items-center gap-4">
                 <Key size={32} className="text-amber-500 shrink-0" />
                 <div>
@@ -769,7 +845,7 @@ export default function App() {
             )}
 
             {/* ── Table ── */}
-            {!loading && supabase && (
+            {!loading && sb && (
               <>
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
