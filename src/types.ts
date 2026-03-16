@@ -1,9 +1,24 @@
-export type CandidateGroup = 'I' | 'II';
+export interface Group {
+  id: string;
+  code: string;
+  name: string;
+  description?: string;
+  created_at?: string;
+}
+
+export interface RecruitmentStatus {
+  id: string;
+  name: string;
+  color_bg?: string;
+  color_text?: string;
+  sort_order?: number;
+  created_at?: string;
+}
 
 export interface Candidate {
   id: string;
   stt?: number;           // Số thứ tự (tự động từ DB hoặc tính toán)
-  group_type: CandidateGroup; // Nhóm: I = UV đi làm ngay, II = UV tiềm năng
+  group_type: string;     // Mã nhóm (link tới Group.code)
   full_name: string;      // Tên ứng viên
   birth_year?: string;    // Năm sinh
   phone?: string;         // Số điện thoại

@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
 } from 'lucide-react';
 import { supabase as supabaseInit, reinitSupabase } from './supabase';
-import type { Candidate, CandidateGroup, Toast } from './types';
+import type { Candidate, Group, RecruitmentStatus, Toast } from './types';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -40,7 +40,7 @@ const RECRUITMENT_STATUSES = [
 ];
 
 const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
-  group_type: 'I',
+  group_type: '',
   full_name: '',
   birth_year: '',
   phone: '',
@@ -51,7 +51,7 @@ const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
   referrer: '',
   ptd_received: false,
   ptd_received_date: '',
-  recruitment_status: 'P.TD chưa liên hệ',
+  recruitment_status: '',
   highlight_color: '',
   notes: '',
 };
@@ -214,12 +214,14 @@ function SettingsModal({ onClose, onSave }: {
 // ─── Candidate Form Modal ─────────────────────────────────────────────────────
 
 function CandidateModal({
-  candidate, onClose, onSave, mode,
+  candidate, onClose, onSave, mode, groups, statuses
 }: {
   candidate: Partial<Candidate>;
   onClose: () => void;
   onSave: (data: Partial<Candidate>) => void;
   mode: 'add' | 'edit';
+  groups: Group[];
+  statuses: RecruitmentStatus[];
 }) {
   const [form, setForm] = useState<Partial<Candidate>>(candidate);
 
@@ -252,10 +254,12 @@ function CandidateModal({
           <div className="grid grid-cols-3 gap-4">
             <div className="space-y-1.5">
               <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Nhóm</label>
-              <select value={form.group_type} onChange={e => set('group_type', e.target.value as CandidateGroup)}
+              <select value={form.group_type} onChange={e => set('group_type', e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
-                <option value="I">Nhóm I – UV đi làm ngay</option>
-                <option value="II">Nhóm II – UV tiềm năng</option>
+                <option value="">-- Chọn nhóm --</option>
+                {groups.map(g => (
+                  <option key={g.id} value={g.code}>{g.code} – {g.name}</option>
+                ))}
               </select>
             </div>
             <div className="col-span-2 space-y-1.5">
@@ -343,7 +347,7 @@ function CandidateModal({
               <select value={form.recruitment_status || ''} onChange={e => set('recruitment_status', e.target.value)}
                 className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
                 <option value="">-- Chọn trạng thái --</option>
-                {RECRUITMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
             </div>
           </div>
@@ -422,7 +426,8 @@ function ConfirmDeleteModal({ name, onConfirm, onClose }: {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, statuses = [] }: { status: string; statuses?: RecruitmentStatus[] }) {
+  const dynamicStatus = statuses.find(s => s.name === status);
   const colorMap: Record<string, { bg: string; color: string }> = {
     'Đang đi làm': { bg: '#bbf7d0', color: '#14532d' },
     'Đang đi làm ở DA KCN Thanh Hoá': { bg: '#bbf7d0', color: '#14532d' },
@@ -434,7 +439,13 @@ function StatusBadge({ status }: { status: string }) {
     'Không phù hợp': { bg: '#fecaca', color: '#7f1d1d' },
     'Hủy / Từ chối': { bg: '#fecaca', color: '#7f1d1d' },
   };
-  const style = colorMap[status] || { bg: '#f1f5f9', color: '#475569' };
+
+  let style = colorMap[status] || { bg: '#f1f5f9', color: '#475569' };
+
+  if (dynamicStatus && dynamicStatus.color_bg) {
+    style = { bg: dynamicStatus.color_bg, color: dynamicStatus.color_text || '#000000' };
+  }
+
   return (
     <span className="status-badge" style={{ background: style.bg, color: style.color }}>
       {status}
@@ -445,12 +456,13 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Quick Status Update Tool ─────────────────────────────────────────────────
 
 function QuickStatusUpdateTool({
-  candidates, sb, onUpdated, showToast,
+  candidates, sb, onUpdated, showToast, statuses
 }: {
   candidates: Candidate[];
   sb: any;
   onUpdated: () => void;
   showToast: (msg: string, type: Toast['type']) => void;
+  statuses: RecruitmentStatus[];
 }) {
   const [selectedId, setSelectedId] = useState('');
   const [newStatus, setNewStatus] = useState('');
@@ -523,8 +535,8 @@ function QuickStatusUpdateTool({
             className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-orange-400 bg-white transition-all"
           >
             <option value="">-- Chọn tình trạng --</option>
-            {RECRUITMENT_STATUSES.map(s => (
-              <option key={s} value={s}>{s}</option>
+            {statuses.map(s => (
+              <option key={s.id} value={s.name}>{s.name}</option>
             ))}
           </select>
         </div>
@@ -547,12 +559,12 @@ function QuickStatusUpdateTool({
         <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3 flex-wrap">
           <span className="text-xs text-slate-500 font-semibold">Tình trạng hiện tại của <span className="text-slate-700 font-black">{selected.full_name}</span>:</span>
           {selected.recruitment_status
-            ? <StatusBadge status={selected.recruitment_status} />
+            ? <StatusBadge status={selected.recruitment_status} statuses={statuses} />
             : <span className="text-xs text-slate-300 italic">Chưa có</span>}
           {newStatus && newStatus !== selected.recruitment_status && (
             <>
               <span className="text-slate-300 text-xs">→</span>
-              <StatusBadge status={newStatus} />
+              <StatusBadge status={newStatus} statuses={statuses} />
             </>
           )}
         </div>
@@ -561,14 +573,271 @@ function QuickStatusUpdateTool({
   );
 }
 
+// ─── Config View Component ───────────────────────────────────────────────────
+
+function ConfigView({
+  sb, groups, statuses, showToast, onUpdated
+}: {
+  sb: any;
+  groups: Group[];
+  statuses: RecruitmentStatus[];
+  showToast: (msg: string, type: Toast['type']) => void;
+  onUpdated: () => void;
+}) {
+  const [editingGroup, setEditingGroup] = useState<Partial<Group> | null>(null);
+  const [editingStatus, setEditingStatus] = useState<Partial<RecruitmentStatus> | null>(null);
+
+  const handleSaveGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingGroup?.code || !editingGroup?.name) return;
+    try {
+      if (editingGroup.id) {
+        const { error } = await sb.from('settings_groups').update({
+          code: editingGroup.code,
+          name: editingGroup.name,
+          description: editingGroup.description
+        }).eq('id', editingGroup.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('settings_groups').insert([{
+          code: editingGroup.code,
+          name: editingGroup.name,
+          description: editingGroup.description
+        }]);
+        if (error) throw error;
+      }
+      showToast('✅ Đã lưu nhóm', 'success');
+      setEditingGroup(null);
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
+  const handleSaveStatus = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStatus?.name) return;
+    try {
+      if (editingStatus.id) {
+        const { error } = await sb.from('settings_statuses').update({
+          name: editingStatus.name,
+          color_bg: editingStatus.color_bg,
+          color_text: editingStatus.color_text,
+          sort_order: editingStatus.sort_order
+        }).eq('id', editingStatus.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('settings_statuses').insert([{
+          name: editingStatus.name,
+          color_bg: editingStatus.color_bg,
+          color_text: editingStatus.color_text,
+          sort_order: editingStatus.sort_order
+        }]);
+        if (error) throw error;
+      }
+      showToast('✅ Đã lưu tình trạng', 'success');
+      setEditingStatus(null);
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
+  const deleteGroup = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa nhóm này?')) return;
+    try {
+      const { error } = await sb.from('settings_groups').delete().eq('id', id);
+      if (error) throw error;
+      showToast('✅ Đã xóa nhóm', 'success');
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
+  const deleteStatus = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa tình trạng này?')) return;
+    try {
+      const { error } = await sb.from('settings_statuses').delete().eq('id', id);
+      if (error) throw error;
+      showToast('✅ Đã xóa tình trạng', 'success');
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
+          <Settings size={20} className="text-white" />
+        </div>
+        <div>
+          <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Cấu hình Danh mục</h2>
+          <p className="text-sm text-slate-500">Quản lý mã nhóm và tình trạng tuyển dụng</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+        {/* Groups Management */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+              <Users size={16} className="text-blue-500" /> Danh sách Nhóm
+            </h3>
+            <button onClick={() => setEditingGroup({ code: '', name: '', description: '' })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-600 hover:text-white transition-all">
+              <Plus size={14} /> Thêm nhóm
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {groups.map(g => (
+              <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-200 transition-all">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">{g.code}</span>
+                    <span className="font-bold text-slate-800">{g.name}</span>
+                  </div>
+                  {g.description && <p className="text-xs text-slate-500 mt-1">{g.description}</p>}
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => setEditingGroup(g)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
+                  <button onClick={() => deleteGroup(g.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {editingGroup && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <form onSubmit={handleSaveGroup} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="bg-blue-600 px-6 py-4 flex items-center justify-between">
+                  <h3 className="text-white font-black text-base uppercase tracking-tight">{editingGroup.id ? 'Sửa nhóm' : 'Thêm nhóm mới'}</h3>
+                  <button type="button" onClick={() => setEditingGroup(null)} className="text-white/60 hover:text-white"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Mã nhóm (VD: I, II, III)</label>
+                    <input required value={editingGroup.code} onChange={e => setEditingGroup({ ...editingGroup, code: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên nhóm</label>
+                    <input required value={editingGroup.name} onChange={e => setEditingGroup({ ...editingGroup, name: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Mô tả</label>
+                    <textarea value={editingGroup.description || ''} onChange={e => setEditingGroup({ ...editingGroup, description: e.target.value })}
+                      rows={2} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500 resize-none" />
+                  </div>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+                  <button type="button" onClick={() => setEditingGroup(null)} className="px-4 py-2 text-sm font-bold text-slate-600">Hủy</button>
+                  <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-black shadow-lg">Lưu</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
+        {/* Statuses Management */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+              <CheckCircle2 size={16} className="text-emerald-500" /> Tình trạng Tuyển dụng
+            </h3>
+            <button onClick={() => setEditingStatus({ name: '', color_bg: '#f1f5f9', color_text: '#475569', sort_order: statuses.length + 1 })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-lg text-xs font-bold hover:bg-emerald-600 hover:text-white transition-all">
+              <Plus size={14} /> Thêm tình trạng
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {statuses.map(s => (
+              <div key={s.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-emerald-200 transition-all">
+                <div className="flex items-center gap-3">
+                  <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black bg-white border border-slate-200 text-slate-400">
+                    {s.sort_order}
+                  </div>
+                  <StatusBadge status={s.name} statuses={statuses} />
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => setEditingStatus(s)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
+                  <button onClick={() => deleteStatus(s.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {editingStatus && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <form onSubmit={handleSaveStatus} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="bg-emerald-600 px-6 py-4 flex items-center justify-between">
+                  <h3 className="text-white font-black text-base uppercase tracking-tight">{editingStatus.id ? 'Sửa tình trạng' : 'Thêm tình trạng mới'}</h3>
+                  <button type="button" onClick={() => setEditingStatus(null)} className="text-white/60 hover:text-white"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên tình trạng</label>
+                    <input required value={editingStatus.name} onChange={e => setEditingStatus({ ...editingStatus, name: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-emerald-500" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu nền (HEX)</label>
+                      <div className="flex gap-2">
+                        <input type="color" value={editingStatus.color_bg} onChange={e => setEditingStatus({ ...editingStatus, color_bg: e.target.value })}
+                          className="w-10 h-10 p-0 border-none bg-transparent cursor-pointer" />
+                        <input value={editingStatus.color_bg} onChange={e => setEditingStatus({ ...editingStatus, color_bg: e.target.value })}
+                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono outline-none focus:border-emerald-500" />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu chữ (HEX)</label>
+                      <div className="flex gap-2">
+                        <input type="color" value={editingStatus.color_text} onChange={e => setEditingStatus({ ...editingStatus, color_text: e.target.value })}
+                          className="w-10 h-10 p-0 border-none bg-transparent cursor-pointer" />
+                        <input value={editingStatus.color_text} onChange={e => setEditingStatus({ ...editingStatus, color_text: e.target.value })}
+                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono outline-none focus:border-emerald-500" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Thứ tự sắp xếp</label>
+                    <input type="number" value={editingStatus.sort_order} onChange={e => setEditingStatus({ ...editingStatus, sort_order: parseInt(e.target.value) })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-emerald-500" />
+                  </div>
+                  <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-center gap-3">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Xem trước:</span>
+                    <StatusBadge status={editingStatus.name || 'Tên mẫu'} statuses={[editingStatus as RecruitmentStatus]} />
+                  </div>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+                  <button type="button" onClick={() => setEditingStatus(null)} className="px-4 py-2 text-sm font-bold text-slate-600">Hủy</button>
+                  <button type="submit" className="px-6 py-2 bg-emerald-600 text-white rounded-xl text-sm font-black shadow-lg">Lưu</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [statuses, setStatuses] = useState<RecruitmentStatus[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<Toast | null>(null);
   const [search, setSearch] = useState('');
-  const [filterGroup, setFilterGroup] = useState<'' | 'I' | 'II'>('');
+  const [filterGroup, setFilterGroup] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; candidate: Partial<Candidate> } | null>(null);
@@ -577,7 +846,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<'list' | 'stats'>('list');
+  const [activeView, setActiveView] = useState<'list' | 'stats' | 'config'>('list');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // supabase client — có thể được reinit sau khi user lưu settings
@@ -595,21 +864,39 @@ export default function App() {
   }, []);
 
   // ── Load candidates ──
-  const loadCandidates = useCallback(async () => {
+  const loadData = useCallback(async () => {
     if (!sb) {
       setLoading(false);
       return;
     }
     setLoading(true);
     try {
-      const { data, error } = await sb
+      // Fetch candidates
+      const { data: candData, error: candError } = await sb
         .from('candidates')
         .select('*')
         .order('group_type', { ascending: true })
         .order('stt', { ascending: true })
         .order('created_at', { ascending: false });
-      if (error) throw error;
-      setCandidates(data || []);
+      if (candError) throw candError;
+      setCandidates(candData || []);
+
+      // Fetch groups
+      const { data: groupData, error: groupError } = await sb
+        .from('settings_groups')
+        .select('*')
+        .order('code', { ascending: true });
+      if (groupError) throw groupError;
+      setGroups(groupData || []);
+
+      // Fetch statuses
+      const { data: statusData, error: statusError } = await sb
+        .from('settings_statuses')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (statusError) throw statusError;
+      setStatuses(statusData || []);
+
       setIsConnected(true);
     } catch (e: any) {
       showToast(`Lỗi kết nối Supabase: ${e?.message || 'Không xác định'}`, 'error');
@@ -626,17 +913,23 @@ export default function App() {
       if (!url) setShowSettings(true);
       return;
     }
-    loadCandidates();
+    loadData();
 
     // Realtime subscription
-    const channel = sb.channel('candidates_changes')
+    const channel = sb.channel('db_changes')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'candidates' }, () => {
-        loadCandidates();
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_groups' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_statuses' }, () => {
+        loadData();
       })
       .subscribe();
 
     return () => { sb?.removeChannel(channel); };
-  }, [sb, loadCandidates]);
+  }, [sb, loadData]);
 
   // ── Save settings ──
   const handleSaveSettings = (url: string, key: string) => {
@@ -671,7 +964,7 @@ export default function App() {
         showToast(`✅ Đã cập nhật: ${data.full_name}`, 'success');
       }
       setModal(null);
-      await loadCandidates();
+      await loadData();
     } catch (e: any) {
       showToast(`Lỗi: ${e?.message || 'Không xác định'}`, 'error');
     }
@@ -685,7 +978,7 @@ export default function App() {
       if (error) throw error;
       setDeleteId(null);
       showToast('✅ Đã xóa ứng viên', 'success');
-      await loadCandidates();
+      await loadData();
     } catch (e: any) {
       showToast(`Lỗi: ${e?.message || 'Không xác định'}`, 'error');
     }
@@ -720,8 +1013,10 @@ export default function App() {
   // ── Stats ──
   const stats = {
     total: candidates.length,
-    groupI: candidates.filter(c => c.group_type === 'I').length,
-    groupII: candidates.filter(c => c.group_type === 'II').length,
+    byGroup: groups.reduce((acc, g) => {
+      acc[g.code] = candidates.filter(c => c.group_type === g.code).length;
+      return acc;
+    }, {} as Record<string, number>),
     working: candidates.filter(c => c.recruitment_status?.includes('Đang đi làm')).length,
     contacted: candidates.filter(c => c.recruitment_status === 'Đang liên hệ').length,
     notContacted: candidates.filter(c => c.recruitment_status === 'P.TD chưa liên hệ').length,
@@ -783,6 +1078,11 @@ export default function App() {
                 activeView === 'stats' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
               <Database size={16} /> Thống kê tổng quan
             </button>
+            <button onClick={() => { setActiveView('config'); setIsSidebarOpen(false); }}
+              className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
+                activeView === 'config' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
+              <Settings size={16} /> Cấu hình Danh mục
+            </button>
           </nav>
           <div className="mt-auto pt-6 border-t border-white/10">
             <button onClick={() => { setShowSettings(true); setIsSidebarOpen(false); }}
@@ -819,6 +1119,17 @@ export default function App() {
 
       <main className="flex-1 p-4 md:p-6 w-full">
 
+        {/* ── Config View ── */}
+        {activeView === 'config' && (
+          <ConfigView
+            sb={sb}
+            groups={groups}
+            statuses={statuses}
+            showToast={showToast}
+            onUpdated={loadData}
+          />
+        )}
+
         {/* ── Stats View ── */}
         {activeView === 'stats' && (
           <div className="space-y-6">
@@ -826,12 +1137,13 @@ export default function App() {
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
               {[
                 { label: 'Tổng ứng viên', value: stats.total, color: 'bg-blue-600' },
-                { label: 'Nhóm I', value: stats.groupI, color: 'bg-indigo-500' },
-                { label: 'Nhóm II', value: stats.groupII, color: 'bg-purple-500' },
+                ...groups.map(g => ({
+                  label: g.name,
+                  value: candidates.filter(c => c.group_type === g.code).length,
+                  color: 'bg-indigo-500'
+                })),
                 { label: 'Đang đi làm', value: stats.working, color: 'bg-emerald-600' },
-                { label: 'Đang liên hệ', value: stats.contacted, color: 'bg-orange-500' },
-                { label: 'Chưa liên hệ', value: stats.notContacted, color: 'bg-slate-500' },
-              ].map(s => (
+              ].slice(0, 6).map(s => (
                 <div key={s.label} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
                   <div className={`w-10 h-10 ${s.color} rounded-xl flex items-center justify-center mb-3`}>
                     <Users size={18} className="text-white" />
@@ -846,13 +1158,13 @@ export default function App() {
             <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
               <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-4">Phân bổ theo tình trạng</h3>
               <div className="space-y-3">
-                {RECRUITMENT_STATUSES.map(status => {
-                  const count = candidates.filter(c => c.recruitment_status === status).length;
+                {statuses.map(status => {
+                  const count = candidates.filter(c => c.recruitment_status === status.name).length;
                   const pct = stats.total > 0 ? (count / stats.total) * 100 : 0;
                   return (
-                    <div key={status} className="flex items-center gap-3">
+                    <div key={status.id} className="flex items-center gap-3">
                       <div className="w-40 shrink-0">
-                        <StatusBadge status={status} />
+                        <StatusBadge status={status.name} statuses={statuses} />
                       </div>
                       <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
                         <div className="h-full bg-blue-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
@@ -868,8 +1180,9 @@ export default function App() {
             <QuickStatusUpdateTool
               candidates={candidates}
               sb={sb}
-              onUpdated={loadCandidates}
+              onUpdated={loadData}
               showToast={showToast}
+              statuses={statuses}
             />
           </div>
         )}
@@ -903,7 +1216,7 @@ export default function App() {
                   {(filterGroup || filterStatus) && <span className="bg-orange-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">!</span>}
                 </button>
                 {/* Refresh */}
-                <button onClick={loadCandidates} disabled={loading}
+                <button onClick={loadData} disabled={loading}
                   className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:border-blue-400 transition-all disabled:opacity-50">
                   <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Làm mới
                 </button>
@@ -925,11 +1238,10 @@ export default function App() {
               <div className="bg-[#f5f2e1] border border-slate-300/50 rounded-2xl px-5 py-4 flex flex-wrap gap-4 items-end shadow-sm">
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Nhóm</label>
-                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value as any); setPage(1); }}
+                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
                     className="border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 bg-white">
                     <option value="">Tất cả</option>
-                    <option value="I">Nhóm I – UV đi làm ngay</option>
-                    <option value="II">Nhóm II – UV tiềm năng</option>
+                    {groups.map(g => <option key={g.id} value={g.code}>{g.code} – {g.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
@@ -937,7 +1249,7 @@ export default function App() {
                   <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
                     className="border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 bg-white">
                     <option value="">Tất cả tình trạng</option>
-                    {RECRUITMENT_STATUSES.map(s => <option key={s} value={s}>{s}</option>)}
+                    {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                   </select>
                 </div>
                 {(filterGroup || filterStatus) && (
@@ -976,130 +1288,67 @@ export default function App() {
               <>
                 <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                   <div className="overflow-x-auto">
-                    {/* GROUP I */}
-                    {(filterGroup === '' || filterGroup === 'I') && grouped.I.length > 0 && (
-                      <>
-                        <table className="data-table">
-                          <thead>
-                            <tr>
-                              <th style={{ width: 45 }}>STT</th>
-                              <th style={{ minWidth: 140 }}>Tên ứng viên</th>
-                              <th style={{ width: 65 }}>Năm sinh</th>
-                              <th style={{ width: 110 }}>SĐT</th>
-                              <th style={{ minWidth: 130 }}>KN/Năng lực</th>
-                              <th style={{ minWidth: 140 }}>Vị trí ứng tuyển</th>
-                              <th style={{ minWidth: 140 }}>Địa điểm mong muốn</th>
-                              <th style={{ width: 100 }}>Ngày GT</th>
-                              <th style={{ minWidth: 120 }}>Người GT</th>
-                              <th style={{ width: 80 }}>PTD nhận HS</th>
-                              <th style={{ minWidth: 160 }}>Tình trạng tuyển dụng</th>
-                              <th style={{ minWidth: 120 }}>Ghi chú</th>
-                              <th style={{ width: 80 }}>Thao tác</th>
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: 45 }}>STT</th>
+                          <th style={{ width: 80 }}>Nhóm</th>
+                          <th style={{ minWidth: 140 }}>Tên ứng viên</th>
+                          <th style={{ width: 65 }}>Năm sinh</th>
+                          <th style={{ width: 110 }}>SĐT</th>
+                          <th style={{ minWidth: 130 }}>KN/Năng lực</th>
+                          <th style={{ minWidth: 140 }}>Vị trí ứng tuyển</th>
+                          <th style={{ minWidth: 140 }}>Địa điểm mong muốn</th>
+                          <th style={{ width: 100 }}>Ngày GT</th>
+                          <th style={{ minWidth: 120 }}>Người GT</th>
+                          <th style={{ width: 80 }}>PTD nhận HS</th>
+                          <th style={{ minWidth: 160 }}>Tình trạng tuyển dụng</th>
+                          <th style={{ minWidth: 120 }}>Ghi chú</th>
+                          <th style={{ width: 80 }}>Thao tác</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {paged.map((c, i) => {
+                          const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
+                          const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
+                          return (
+                            <tr key={c.id} style={rowStyle}>
+                              <td className="text-center font-bold text-blue-700 text-xs">{c.stt || ((page - 1) * PER_PAGE + i + 1)}</td>
+                              <td className="text-center"><span className="bg-slate-100 text-slate-600 text-[10px] font-black px-1.5 py-0.5 rounded uppercase">{c.group_type}</span></td>
+                              <td className="font-semibold">{c.full_name}</td>
+                              <td className="text-center">{c.birth_year}</td>
+                              <td className="text-center">{c.phone}</td>
+                              <td>{c.experience}</td>
+                              <td>{c.position}</td>
+                              <td>{c.desired_location}</td>
+                              <td className="text-center text-xs">{c.referral_date}</td>
+                              <td>{c.referrer}</td>
+                              <td className="text-center">
+                                {c.ptd_received
+                                  ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-bold bg-emerald-100 px-2 py-0.5 rounded-full">✓ Nhận</span>
+                                  : <span className="text-slate-300 text-xs">–</span>}
+                              </td>
+                              <td>
+                                {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
+                              </td>
+                              <td className="text-xs text-slate-500 italic">{c.notes}</td>
+                              <td>
+                                <div className="flex items-center justify-center gap-1">
+                                  <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
+                                    className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
+                                    <Edit2 size={12} />
+                                  </button>
+                                  <button onClick={() => setDeleteId(c.id)}
+                                    className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </div>
+                              </td>
                             </tr>
-                          </thead>
-                        </table>
-                        {/* Group header */}
-                        <div className="px-4 py-2 bg-orange-50 border-y border-orange-200 flex items-center gap-2">
-                          <span className="text-[11px] font-black text-orange-700 uppercase tracking-widest">Nhóm I — UV đi làm ngay (có tay nghề)</span>
-                          <span className="bg-orange-200 text-orange-800 text-[10px] font-black px-2 py-0.5 rounded-full">{grouped.I.length} người</span>
-                        </div>
-                        <table className="data-table">
-                          <tbody>
-                            {grouped.I.slice((page - 1) * PER_PAGE, page * PER_PAGE).map((c, i) => {
-                              const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
-                              const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
-                              return (
-                                <tr key={c.id} style={rowStyle}>
-                                  <td className="text-center font-bold text-blue-700 text-xs">{c.stt || (i + 1)}</td>
-                                  <td className="font-semibold">{c.full_name}</td>
-                                  <td className="text-center">{c.birth_year}</td>
-                                  <td className="text-center">{c.phone}</td>
-                                  <td>{c.experience}</td>
-                                  <td>{c.position}</td>
-                                  <td>{c.desired_location}</td>
-                                  <td className="text-center text-xs">{c.referral_date}</td>
-                                  <td>{c.referrer}</td>
-                                  <td className="text-center">
-                                    {c.ptd_received
-                                      ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-bold bg-emerald-100 px-2 py-0.5 rounded-full">✓ Nhận</span>
-                                      : <span className="text-slate-300 text-xs">–</span>}
-                                  </td>
-                                  <td>
-                                    {c.recruitment_status ? <StatusBadge status={c.recruitment_status} /> : null}
-                                  </td>
-                                  <td className="text-xs text-slate-500 italic">{c.notes}</td>
-                                  <td>
-                                    <div className="flex items-center justify-center gap-1">
-                                      <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
-                                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
-                                        <Edit2 size={12} />
-                                      </button>
-                                      <button onClick={() => setDeleteId(c.id)}
-                                        className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </>
-                    )}
-
-                    {/* GROUP II */}
-                    {(filterGroup === '' || filterGroup === 'II') && grouped.II.length > 0 && (
-                      <>
-                        {/* Group header */}
-                        <div className="px-4 py-2 bg-blue-50 border-y border-blue-200 flex items-center gap-2">
-                          <span className="text-[11px] font-black text-blue-700 uppercase tracking-widest">Nhóm II — UV tiềm năng</span>
-                          <span className="bg-blue-200 text-blue-800 text-[10px] font-black px-2 py-0.5 rounded-full">{grouped.II.length} người</span>
-                        </div>
-                        <table className="data-table">
-                          <tbody>
-                            {grouped.II.slice((page - 1) * PER_PAGE, page * PER_PAGE).map((c, i) => {
-                              const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
-                              const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
-                              return (
-                                <tr key={c.id} style={rowStyle}>
-                                  <td className="text-center font-bold text-blue-700 text-xs">{c.stt || (grouped.I.length + i + 1)}</td>
-                                  <td className="font-semibold">{c.full_name}</td>
-                                  <td className="text-center">{c.birth_year}</td>
-                                  <td className="text-center">{c.phone}</td>
-                                  <td>{c.experience}</td>
-                                  <td>{c.position}</td>
-                                  <td>{c.desired_location}</td>
-                                  <td className="text-center text-xs">{c.referral_date}</td>
-                                  <td>{c.referrer}</td>
-                                  <td className="text-center">
-                                    {c.ptd_received
-                                      ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-bold bg-emerald-100 px-2 py-0.5 rounded-full">✓ Nhận</span>
-                                      : <span className="text-slate-300 text-xs">–</span>}
-                                  </td>
-                                  <td>
-                                    {c.recruitment_status ? <StatusBadge status={c.recruitment_status} /> : null}
-                                  </td>
-                                  <td className="text-xs text-slate-500 italic">{c.notes}</td>
-                                  <td>
-                                    <div className="flex items-center justify-center gap-1">
-                                      <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
-                                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
-                                        <Edit2 size={12} />
-                                      </button>
-                                      <button onClick={() => setDeleteId(c.id)}
-                                        className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
-                                        <Trash2 size={12} />
-                                      </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
-                      </>
-                    )}
+                          );
+                        })}
+                      </tbody>
+                    </table>
 
                     {/* Empty */}
                     {filtered.length === 0 && !loading && (
@@ -1145,7 +1394,7 @@ export default function App() {
 
       {/* Modals */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onSave={handleSaveSettings} />}
-      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} />}
+      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} />}
       {deleteId && <ConfirmDeleteModal name={deleteTarget?.full_name || ''} onConfirm={handleDelete} onClose={() => setDeleteId(null)} />}
 
       {/* Toast */}

@@ -3,12 +3,30 @@
 -- Chạy trong: Supabase Dashboard → SQL Editor → New Query
 -- ============================================================
 
+-- Bảng cấu hình Nhóm
+CREATE TABLE IF NOT EXISTS public.settings_groups (
+  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  code        TEXT NOT NULL UNIQUE,      -- 'I', 'II', 'III'...
+  name        TEXT NOT NULL,             -- 'UV đi làm ngay', 'UV tiềm năng'...
+  description TEXT,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Bảng cấu hình Tình trạng tuyển dụng
+CREATE TABLE IF NOT EXISTS public.settings_statuses (
+  id          UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name        TEXT NOT NULL UNIQUE,      -- 'Đang liên hệ', 'Đã ký hợp đồng'...
+  color_bg    TEXT DEFAULT '#f1f5f9',
+  color_text  TEXT DEFAULT '#475569',
+  sort_order  INTEGER DEFAULT 0,
+  created_at  TIMESTAMPTZ DEFAULT NOW()
+);
+
 -- Tạo bảng candidates
 CREATE TABLE IF NOT EXISTS public.candidates (
   id              UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   stt             INTEGER,                   -- Số thứ tự (tùy chọn, tự điền)
-  group_type      TEXT NOT NULL DEFAULT 'I'  -- 'I' = UV đi làm ngay, 'II' = UV tiềm năng
-                  CHECK (group_type IN ('I', 'II')),
+  group_type      TEXT NOT NULL DEFAULT 'I', -- Mã nhóm (link tới settings_groups.code)
   full_name       TEXT NOT NULL,             -- Tên ứng viên
   birth_year      TEXT,                      -- Năm sinh (lưu dạng text để linh hoạt)
   phone           TEXT,                      -- Số điện thoại
@@ -19,7 +37,7 @@ CREATE TABLE IF NOT EXISTS public.candidates (
   referrer        TEXT,                      -- Người giới thiệu
   ptd_received    BOOLEAN DEFAULT FALSE,     -- PTD đã nhận hồ sơ giới thiệu chưa
   ptd_received_date TEXT,                    -- Ngày PTD nhận HS
-  recruitment_status TEXT DEFAULT 'P.TD chưa liên hệ', -- Tình trạng tuyển dụng
+  recruitment_status TEXT DEFAULT 'P.TD chưa liên hệ', -- Tình trạng tuyển dụng (link tới settings_statuses.name)
   highlight_color TEXT DEFAULT '',           -- Màu highlight dòng: 'green', 'yellow', 'blue', 'orange', 'red', 'purple', 'pink', ''
   notes           TEXT,                      -- Ghi chú
   created_at      TIMESTAMPTZ DEFAULT NOW(),
@@ -47,34 +65,40 @@ CREATE TRIGGER trigger_candidates_updated_at
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
 -- ============================================================
--- ROW LEVEL SECURITY (RLS) - Bật bảo mật theo người dùng
--- Nếu muốn app PUBLIC (không cần đăng nhập): chạy phần bên dưới
--- Nếu muốn có xác thực: thiết lập Auth trong Supabase
+-- ROW LEVEL SECURITY (RLS)
 -- ============================================================
 
--- Bật RLS
+ALTER TABLE public.settings_groups ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.settings_statuses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.candidates ENABLE ROW LEVEL SECURITY;
 
--- Policy: Cho phép tất cả với anon key (phù hợp app nội bộ, không cần đăng nhập)
--- XÓA policy này nếu muốn yêu cầu đăng nhập
-CREATE POLICY "Allow all for anon"
-  ON public.candidates
-  FOR ALL
-  TO anon
-  USING (true)
-  WITH CHECK (true);
-
--- Policy cho authenticated users (nếu sau này thêm auth)
-CREATE POLICY "Allow all for authenticated"
-  ON public.candidates
-  FOR ALL
-  TO authenticated
-  USING (true)
-  WITH CHECK (true);
+-- Policy cho anon (public access)
+CREATE POLICY "Allow all for anon" ON public.settings_groups FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for anon" ON public.settings_statuses FOR ALL TO anon USING (true) WITH CHECK (true);
+CREATE POLICY "Allow all for anon" ON public.candidates FOR ALL TO anon USING (true) WITH CHECK (true);
 
 -- ============================================================
--- DỮ LIỆU MẪU (tùy chọn, xóa nếu không cần)
+-- DỮ LIỆU MẪU
 -- ============================================================
+
+-- Chèn nhóm mẫu
+INSERT INTO public.settings_groups (code, name) VALUES
+('I', 'Nhóm I – UV đi làm ngay'),
+('II', 'Nhóm II – UV tiềm năng')
+ON CONFLICT (code) DO NOTHING;
+
+-- Chèn trạng thái mẫu
+INSERT INTO public.settings_statuses (name, color_bg, color_text, sort_order) VALUES
+('P.TD chưa liên hệ', '#e2e8f0', '#475569', 1),
+('Đang liên hệ', '#bfdbfe', '#1e3a8a', 2),
+('Đang phỏng vấn', '#fde68a', '#78350f', 3),
+('Chờ kết quả', '#fed7aa', '#9a3412', 4),
+('Đã ký hợp đồng', '#a5f3fc', '#164e63', 5),
+('Đang đi làm', '#bbf7d0', '#14532d', 6),
+('Đang đi làm ở DA KCN Thanh Hoá', '#bbf7d0', '#14532d', 7),
+('Không phù hợp', '#fecaca', '#7f1d1d', 8),
+('Hủy / Từ chối', '#fecaca', '#7f1d1d', 9)
+ON CONFLICT (name) DO NOTHING;
 
 INSERT INTO public.candidates (group_type, stt, full_name, birth_year, phone, experience, position, desired_location, referral_date, referrer, ptd_received, recruitment_status, highlight_color, notes) VALUES
 ('I', 1, 'Đinh Quang Sáng', '2001', '0969961951', 'Đã có KN', 'Thợ hàn', NULL, '04/03/2026', 'Trần Thư Trường', TRUE, 'Đang đi làm ở DA KCN Thanh Hoá', 'green', NULL),
