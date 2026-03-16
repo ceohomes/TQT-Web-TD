@@ -442,6 +442,125 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+// ─── Quick Status Update Tool ─────────────────────────────────────────────────
+
+function QuickStatusUpdateTool({
+  candidates, sb, onUpdated, showToast,
+}: {
+  candidates: Candidate[];
+  sb: any;
+  onUpdated: () => void;
+  showToast: (msg: string, type: Toast['type']) => void;
+}) {
+  const [selectedId, setSelectedId] = useState('');
+  const [newStatus, setNewStatus] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const selected = candidates.find(c => c.id === selectedId);
+
+  const handleUpdate = async () => {
+    if (!sb || !selectedId || !newStatus) {
+      showToast('Vui lòng chọn ứng viên và tình trạng', 'error');
+      return;
+    }
+    setSaving(true);
+    showToast('Đang cập nhật...', 'loading');
+    try {
+      const { error } = await sb
+        .from('candidates')
+        .update({ recruitment_status: newStatus, updated_at: new Date().toISOString() })
+        .eq('id', selectedId);
+      if (error) throw error;
+      showToast(`✅ Đã cập nhật tình trạng: ${selected?.full_name}`, 'success');
+      setSelectedId('');
+      setNewStatus('');
+      await onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e?.message || 'Không xác định'}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
+      <div className="flex items-center gap-3 mb-5">
+        <div className="w-8 h-8 bg-orange-500 rounded-xl flex items-center justify-center">
+          <Edit2 size={14} className="text-white" />
+        </div>
+        <div>
+          <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest">Cập nhật nhanh tình trạng tuyển dụng</h3>
+          <p className="text-xs text-slate-400 mt-0.5">Chọn ứng viên và cập nhật tình trạng trực tiếp</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+        {/* Chọn ứng viên */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-black text-slate-600 uppercase tracking-widest">Ứng viên</label>
+          <select
+            value={selectedId}
+            onChange={e => { setSelectedId(e.target.value); setNewStatus(''); }}
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-orange-400 bg-white transition-all"
+          >
+            <option value="">-- Chọn ứng viên --</option>
+            {[...candidates]
+              .sort((a, b) => (a.group_type + a.full_name).localeCompare(b.group_type + b.full_name))
+              .map(c => (
+                <option key={c.id} value={c.id}>
+                  [{c.group_type}] {c.full_name}
+                </option>
+              ))}
+          </select>
+        </div>
+
+        {/* Tình trạng hiện tại (readonly) */}
+        <div className="space-y-1.5">
+          <label className="text-[11px] font-black text-slate-600 uppercase tracking-widest">Tình trạng mới</label>
+          <select
+            value={newStatus}
+            onChange={e => setNewStatus(e.target.value)}
+            className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-orange-400 bg-white transition-all"
+          >
+            <option value="">-- Chọn tình trạng --</option>
+            {RECRUITMENT_STATUSES.map(s => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Nút cập nhật */}
+        <div>
+          <button
+            onClick={handleUpdate}
+            disabled={saving || !selectedId || !newStatus}
+            className="w-full py-2.5 px-6 rounded-xl bg-orange-500 hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed text-white font-black text-sm transition-all flex items-center justify-center gap-2 shadow"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+            Cập nhật
+          </button>
+        </div>
+      </div>
+
+      {/* Preview tình trạng hiện tại */}
+      {selected && (
+        <div className="mt-4 p-3 bg-slate-50 rounded-xl border border-slate-100 flex items-center gap-3 flex-wrap">
+          <span className="text-xs text-slate-500 font-semibold">Tình trạng hiện tại của <span className="text-slate-700 font-black">{selected.full_name}</span>:</span>
+          {selected.recruitment_status
+            ? <StatusBadge status={selected.recruitment_status} />
+            : <span className="text-xs text-slate-300 italic">Chưa có</span>}
+          {newStatus && newStatus !== selected.recruitment_status && (
+            <>
+              <span className="text-slate-300 text-xs">→</span>
+              <StatusBadge status={newStatus} />
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -744,6 +863,14 @@ export default function App() {
                 })}
               </div>
             </div>
+
+            {/* ── Cập nhật nhanh tình trạng tuyển dụng ── */}
+            <QuickStatusUpdateTool
+              candidates={candidates}
+              sb={sb}
+              onUpdated={loadCandidates}
+              showToast={showToast}
+            />
           </div>
         )}
 
