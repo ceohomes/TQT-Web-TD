@@ -330,11 +330,21 @@ function CandidateModal({
     });
   };
 
+  // ESC key to close edit modal
+  React.useEffect(() => {
+    if (mode !== 'edit') return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [mode, onClose]);
+
   if (mode === 'edit') {
     const highlight = HIGHLIGHT_COLORS.find(c => c.key === form.highlight_color) || HIGHLIGHT_COLORS[0];
     return (
-      <div className="modal-overlay" onClick={onClose}>
-        <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="modal-overlay">
+        <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl">
           {/* Header */}
           <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #1e4480 100%)' }}>
             <div className="flex items-center gap-3">
@@ -616,9 +626,21 @@ function CandidateModal({
                       </select>
                     </td>
                     <td className="p-1 border-r border-slate-300">
-                      <select value={row.recruitment_status || ''} onChange={e => updateRow(idx, 'recruitment_status', e.target.value)}
+                      <select
+                        value={row.recruitment_status || ''}
+                        onChange={e => updateRow(idx, 'recruitment_status', e.target.value)}
                         data-field="recruitment_status" data-row-idx={idx}
-                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]">
+                        className="w-full outline-none px-2 py-1.5 rounded text-[12px] font-semibold transition-all cursor-pointer border"
+                        style={row.recruitment_status ? {
+                          backgroundColor: getAutoBgColor(row.recruitment_status),
+                          color: '#000',
+                          borderColor: getAutoBgColor(row.recruitment_status),
+                        } : {
+                          backgroundColor: 'transparent',
+                          color: '#64748b',
+                          borderColor: '#e2e8f0',
+                        }}
+                      >
                         <option value="">-- Chọn --</option>
                         {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
@@ -1369,22 +1391,40 @@ export default function App() {
     }
     loadData();
 
-    // Realtime subscription
+    // Realtime subscription — cập nhật state trực tiếp từ payload, không reload toàn bộ
     const channel = sb.channel('db_changes')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'candidates' }, () => {
-        loadData();
+      // ── Candidates: xử lý từng event riêng biệt ──
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'candidates' }, (payload) => {
+        setCandidates(prev => {
+          // Tránh thêm trùng (user hiện tại đã add qua handleSave)
+          if (prev.find(c => c.id === payload.new.id)) return prev;
+          return [...prev, payload.new as Candidate];
+        });
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_groups' }, () => {
-        loadData();
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'candidates' }, (payload) => {
+        setCandidates(prev =>
+          prev.map(c => c.id === payload.new.id ? { ...c, ...(payload.new as Candidate) } : c)
+        );
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_statuses' }, () => {
-        loadData();
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'candidates' }, (payload) => {
+        setCandidates(prev => prev.filter(c => c.id !== payload.old.id));
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_referrers' }, () => {
-        loadData();
+      // ── Settings: reload nhẹ chỉ bảng tương ứng ──
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_groups' }, async () => {
+        const { data } = await sb.from('settings_groups').select('*').order('code', { ascending: true });
+        if (data) setGroups(data);
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_recruiters' }, () => {
-        loadData();
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_statuses' }, async () => {
+        const { data } = await sb.from('settings_statuses').select('*').order('sort_order', { ascending: true });
+        if (data) setStatuses(data);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_referrers' }, async () => {
+        const { data } = await sb.from('settings_referrers').select('*').order('name', { ascending: true });
+        if (data) setReferrers(data);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_recruiters' }, async () => {
+        const { data } = await sb.from('settings_recruiters').select('*').order('name', { ascending: true });
+        if (data) setRecruiters(data);
       })
       .subscribe();
 
@@ -1499,11 +1539,40 @@ export default function App() {
     return true;
   });
 
-  const totalPages = Math.ceil(filtered.length / PER_PAGE);
+  // ── Sort 2 cấp trong mỗi nhóm ──
+  // Level 1: Tình trạng (theo sort_order của settings_statuses)
+  // Level 2: Ngày giới thiệu từ cũ → mới (dd/mm/yyyy)
+  const parseReferralDate = (dateStr?: string): number => {
+    if (!dateStr) return Number.MAX_SAFE_INTEGER;
+    // Hỗ trợ định dạng dd/mm/yyyy
+    const parts = dateStr.trim().split('/');
+    if (parts.length === 3) {
+      const [d, m, y] = parts;
+      return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`).getTime() || Number.MAX_SAFE_INTEGER;
+    }
+    return Number.MAX_SAFE_INTEGER;
+  };
+
+  const statusOrderMap: Record<string, number> = {};
+  statuses.forEach((s, idx) => { statusOrderMap[s.name] = s.sort_order ?? idx; });
+
+  const sorted = [...filtered].sort((a, b) => {
+    // Sắp xếp theo nhóm trước
+    if (a.group_type < b.group_type) return -1;
+    if (a.group_type > b.group_type) return 1;
+    // Level 1: Tình trạng
+    const sa = statusOrderMap[a.recruitment_status || ''] ?? 9999;
+    const sb2 = statusOrderMap[b.recruitment_status || ''] ?? 9999;
+    if (sa !== sb2) return sa - sb2;
+    // Level 2: Ngày giới thiệu cũ → mới
+    return parseReferralDate(a.referral_date) - parseReferralDate(b.referral_date);
+  });
+
+  const totalPages = Math.ceil(sorted.length / PER_PAGE);
   
   // Tính toán STT trong nhóm cho từng ứng viên
   const groupCounts: Record<string, number> = {};
-  const candidatesWithGroupSTT = filtered.map(c => {
+  const candidatesWithGroupSTT = sorted.map(c => {
     groupCounts[c.group_type] = (groupCounts[c.group_type] || 0) + 1;
     return { ...c, sttInGroup: groupCounts[c.group_type] };
   });
@@ -1528,7 +1597,7 @@ export default function App() {
   // Export to CSV
   const exportCSV = () => {
     const headers = ['STT', 'Nhóm', 'Tên ứng viên', 'Năm sinh', 'SĐT', 'Kinh nghiệm/năng lực', 'Vị trí ứng tuyển', 'Địa điểm mong muốn làm việc', 'Ngày giới thiệu', 'Người giới thiệu', 'PTD nhận HS giới thiệu', 'Tình trạng', 'Ghi chú'];
-    const rows = filtered.map((c, i) => {
+    const rows = sorted.map((c, i) => {
       const groupName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
       return [
         (c as any).sttInGroup || (i + 1), groupName,
@@ -1704,7 +1773,7 @@ export default function App() {
                 <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
                   <div className="w-1 h-5 bg-orange-500 rounded-full" />
                   Danh sách ứng viên
-                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full normal-case">{filtered.length}/{candidates.length}</span>
+                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full normal-case">{sorted.length}/{candidates.length}</span>
                 </h2>
               </div>
 
@@ -1866,27 +1935,35 @@ export default function App() {
                             const groupIndex = groups.findIndex(g => g.code === c.group_type) + 1;
                             
                             const groupColors = [
-                              { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-900' },
-                              { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-900' },
-                              { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-900' },
-                              { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-900' },
+                              { bg: '#fff3e0', border: '#f97316', text: '#7c2d00', dot: '#f97316', stripe: 'rgba(249,115,22,0.08)' },
+                              { bg: '#e8f5e9', border: '#22c55e', text: '#14532d', dot: '#22c55e', stripe: 'rgba(34,197,94,0.08)' },
+                              { bg: '#ede9fe', border: '#8b5cf6', text: '#4c1d95', dot: '#8b5cf6', stripe: 'rgba(139,92,246,0.08)' },
+                              { bg: '#fce4ec', border: '#f43f5e', text: '#881337', dot: '#f43f5e', stripe: 'rgba(244,63,94,0.08)' },
+                              { bg: '#e0f2fe', border: '#0ea5e9', text: '#0c4a6e', dot: '#0ea5e9', stripe: 'rgba(14,165,233,0.08)' },
+                              { bg: '#fef9c3', border: '#eab308', text: '#713f12', dot: '#eab308', stripe: 'rgba(234,179,8,0.08)' },
                             ];
                             const color = groupColors[(groupIndex - 1) % groupColors.length] || groupColors[0];
                             
                             const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
-                            const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
 
                             return (
                               <React.Fragment key={c.id}>
                                 {showHeader && (
-                                  <tr className={cn("border-y", color.bg, color.border)}>
-                                    <td className="text-center font-black text-slate-700">{toRoman(groupIndex)}</td>
-                                    <td colSpan={12} className={cn("py-2.5 px-4 font-black text-sm uppercase tracking-tight", color.text)}>
-                                      {groupName}
+                                  <tr style={{ background: color.bg, borderTop: `2px solid ${color.border}`, borderBottom: `2px solid ${color.border}` }}>
+                                    <td className="text-center font-black text-slate-700" style={{ color: color.text }}>
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 6, background: color.border, color: '#fff', fontSize: 11, fontWeight: 900 }}>
+                                        {toRoman(groupIndex)}
+                                      </span>
+                                    </td>
+                                    <td colSpan={12} style={{ color: color.text }} className="py-2.5 px-4 font-black text-sm uppercase tracking-tight">
+                                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
+                                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, display: 'inline-block', flexShrink: 0 }} />
+                                        {groupName}
+                                      </span>
                                     </td>
                                   </tr>
                                 )}
-                                <tr style={rowStyle}>
+                                <tr style={hl?.key ? { background: hl.bg, color: hl.text } : { background: color.stripe }}>
                                   <td className="text-center font-bold text-blue-700 text-xs">{(c as any).sttInGroup}</td>
                                   <td className="font-semibold">{c.full_name}</td>
                                   <td className="text-center">{c.birth_year}</td>
@@ -1922,7 +1999,7 @@ export default function App() {
                     </table>
 
                     {/* Empty */}
-                    {filtered.length === 0 && !loading && (
+                    {sorted.length === 0 && !loading && (
                       <div className="py-20 text-center">
                         <Users size={48} className="mx-auto text-slate-200 mb-4" />
                         <p className="font-black text-slate-400 uppercase tracking-widest text-sm">Không có dữ liệu</p>
@@ -1938,7 +2015,7 @@ export default function App() {
                 {totalPages > 1 && (
                   <div className="flex items-center justify-between bg-white rounded-2xl px-5 py-3 border border-slate-200 shadow-sm">
                     <p className="text-sm text-slate-500 font-medium">
-                      Hiển thị {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, filtered.length)} / {filtered.length}
+                      Hiển thị {(page - 1) * PER_PAGE + 1}–{Math.min(page * PER_PAGE, sorted.length)} / {sorted.length}
                     </p>
                     <div className="flex items-center gap-2">
                       <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
