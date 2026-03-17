@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import * as XLSX from 'xlsx';
 import {
   Plus, Trash2, Edit2, Search, Filter, X, Save, Settings,
   Download, RotateCw, CheckCircle2, AlertCircle, Loader2,
@@ -1626,158 +1625,158 @@ export default function App() {
     statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
 
-  // Export to Excel
+  // Export to Excel (SpreadsheetML – không cần thư viện ngoài)
   const exportExcel = () => {
-    const wb = XLSX.utils.book_new();
-    const wsData: any[][] = [];
+    const esc = (v: any) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
-    // Màu nhóm (ARGB hex, bỏ #)
-    const groupFills = [
-      'FFFFF3E0', // cam nhạt
-      'FFE8F5E9', // xanh lá nhạt
-      'FFEDE9FE', // tím nhạt
-      'FFFCE4EC', // hồng nhạt
-      'FFE0F2FE', // xanh dương nhạt
-      'FFFEF9C3', // vàng nhạt
-    ];
-    const groupBorders = [
-      'FFF97316', 'FF22C55E', 'FF8B5CF6',
-      'FFF43F5E', 'FF0EA5E9', 'FFEAB308',
-    ];
+    // Bảng màu nhóm (hex RRGGBB)
+    const groupBgColors  = ['FFF3E0','E8F5E9','EDE9FE','FCE4EC','E0F2FE','FEF9C3'];
+    const groupFgColors  = ['E65100','1B5E20','4A148C','880E4F','01579B','F57F17'];
 
-    // Header bảng
-    const headers = [
-      'STT', 'Tên ứng viên', 'Năm sinh', 'SĐT',
-      'Kinh nghiệm/Năng lực', 'Vị trí ứng tuyển',
-      'Địa điểm mong muốn làm việc', 'Ngày giới thiệu',
-      'Người giới thiệu', 'NS P.TD nhận', 'Tình trạng', 'Ghi chú'
-    ];
-    wsData.push(headers);
+    // Tính màu tình trạng từ getAutoBgColor
+    const statusBgHex = (name: string) =>
+      getAutoBgColor(name).replace('#','').toUpperCase();
 
-    // Theo dõi row index để apply style sau
-    const headerRowIdx = 0; // 0-based
-    const groupHeaderRows: { rowIdx: number; groupIdx: number }[] = [];
-    const dataRows: { rowIdx: number; statusName: string }[] = [];
+    // Styles (indexed)
+    const styles = `
+<Styles>
+  <Style ss:ID="Header">
+    <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+    <Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="11" ss:FontName="Calibri"/>
+    <Interior ss:Color="#1A3A6B" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#FFFFFF"/>
+      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#7F9DB9"/>
+    </Borders>
+  </Style>
+  ${groupBgColors.map((bg, i) => `
+  <Style ss:ID="Group${i}">
+    <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
+    <Font ss:Bold="1" ss:Color="#${groupFgColors[i]}" ss:Size="11" ss:FontName="Calibri"/>
+    <Interior ss:Color="#${bg}" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#${groupFgColors[i]}"/>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#${groupFgColors[i]}"/>
+    </Borders>
+  </Style>`).join('')}
+  <Style ss:ID="DataNormal">
+    <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
+    <Font ss:Size="10" ss:FontName="Calibri" ss:Color="#1E293B"/>
+    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    </Borders>
+  </Style>
+  <Style ss:ID="DataCenter">
+    <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
+    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#1E40AF"/>
+    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    </Borders>
+  </Style>
+  <Style ss:ID="DataBold">
+    <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
+    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#1E293B"/>
+    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    </Borders>
+  </Style>
+  ${statuses.map(s => {
+    const bg = statusBgHex(s.name);
+    return `<Style ss:ID="Status_${bg}">
+    <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
+    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#000000"/>
+    <Interior ss:Color="#${bg}" ss:Pattern="Solid"/>
+    <Borders>
+      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
+    </Borders>
+  </Style>`;
+  }).join('')}
+</Styles>`;
 
-    let rowIdx = 1;
+    const colWidths = [40, 160, 60, 90, 160, 180, 200, 90, 130, 120, 160, 220];
+    const colDefs = colWidths.map(w => `<Column ss:Width="${w}"/>`).join('');
+
+    const headers = ['STT','Tên ứng viên','Năm sinh','SĐT','Kinh nghiệm/Năng lực','Vị trí ứng tuyển','Địa điểm mong muốn làm việc','Ngày giới thiệu','Người giới thiệu','NS P.TD nhận','Tình trạng','Ghi chú'];
+    const headerRow = `<Row ss:Height="30">${headers.map(h => `<Cell ss:StyleID="Header"><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`;
+
+    const dataRowsXml: string[] = [];
     let lastGroup = '';
     let sttInGroup = 0;
 
     for (const c of sorted) {
-      // Header nhóm
       if (c.group_type !== lastGroup) {
         lastGroup = c.group_type;
         sttInGroup = 0;
-        const groupIdx = groups.findIndex(g => g.code === c.group_type);
-        const groupName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
-        const romanNum = toRoman(groupIdx + 1);
-        wsData.push([`${romanNum}  ${groupName}`, '', '', '', '', '', '', '', '', '', '', '']);
-        groupHeaderRows.push({ rowIdx, groupIdx: groupIdx >= 0 ? groupIdx : 0 });
-        rowIdx++;
+        const gIdx = groups.findIndex(g => g.code === c.group_type);
+        const safeGIdx = gIdx >= 0 ? gIdx % groupBgColors.length : 0;
+        const gName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
+        const roman = toRoman(gIdx + 1);
+        dataRowsXml.push(
+          `<Row ss:Height="24">` +
+          `<Cell ss:StyleID="Group${safeGIdx}"><Data ss:Type="String">${esc(roman)}</Data></Cell>` +
+          `<Cell ss:StyleID="Group${safeGIdx}" ss:MergeAcross="10"><Data ss:Type="String">${esc(gName)}</Data></Cell>` +
+          `</Row>`
+        );
       }
-
       sttInGroup++;
-      wsData.push([
-        sttInGroup,
-        c.full_name || '',
-        c.birth_year || '',
-        c.phone || '',
-        c.experience || '',
-        c.position || '',
-        c.desired_location || '',
-        c.referral_date || '',
-        c.referrer || '',
-        c.recruiter || '',
-        c.recruitment_status || '',
-        c.notes || '',
-      ]);
-      dataRows.push({ rowIdx, statusName: c.recruitment_status || '' });
-      rowIdx++;
+      const bg = statusBgHex(c.recruitment_status || '');
+      const statusStyleId = `Status_${bg}`;
+      const fields = [c.full_name, c.birth_year, c.phone, c.experience, c.position, c.desired_location, c.referral_date, c.referrer, c.recruiter];
+      dataRowsXml.push(
+        `<Row ss:Height="22">` +
+        `<Cell ss:StyleID="DataCenter"><Data ss:Type="Number">${sttInGroup}</Data></Cell>` +
+        `<Cell ss:StyleID="DataBold"><Data ss:Type="String">${esc(c.full_name)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.birth_year)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.phone)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.experience)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.position)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.desired_location)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.referral_date)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.referrer)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.recruiter)}</Data></Cell>` +
+        `<Cell ss:StyleID="${statusStyleId}"><Data ss:Type="String">${esc(c.recruitment_status)}</Data></Cell>` +
+        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.notes)}</Data></Cell>` +
+        `</Row>`
+      );
     }
 
-    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+  xmlns:x="urn:schemas-microsoft-com:office:excel">
+  <ExcelWorkbook xmlns="urn:schemas-microsoft-com:office:excel">
+    <WindowHeight>12000</WindowHeight><WindowWidth>20000</WindowWidth>
+    <ProtectStructure>False</ProtectStructure>
+    <ProtectWindows>False</ProtectWindows>
+  </ExcelWorkbook>
+  ${styles}
+  <Worksheet ss:Name="Danh sách UV">
+    <Table>${colDefs}${headerRow}${dataRowsXml.join('')}</Table>
+    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
+      <FreezePanes/><FrozenNoSplit/>
+      <SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane>
+    </WorksheetOptions>
+  </Worksheet>
+</Workbook>`;
 
-    // Độ rộng cột
-    ws['!cols'] = [
-      { wch: 5 },  // STT
-      { wch: 22 }, // Tên
-      { wch: 9 },  // Năm sinh
-      { wch: 13 }, // SĐT
-      { wch: 22 }, // KN
-      { wch: 25 }, // Vị trí
-      { wch: 28 }, // Địa điểm
-      { wch: 12 }, // Ngày GT
-      { wch: 18 }, // Người GT
-      { wch: 16 }, // NS P.TD
-      { wch: 22 }, // Tình trạng
-      { wch: 30 }, // Ghi chú
-    ];
-
-    // Style header bảng (row 0)
-    for (let col = 0; col < headers.length; col++) {
-      const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
-      if (!ws[cellRef]) ws[cellRef] = { v: headers[col] };
-      ws[cellRef].s = {
-        fill: { fgColor: { rgb: 'FF1A3A6B' } },
-        font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11 },
-        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
-        border: {
-          bottom: { style: 'medium', color: { rgb: 'FFFFFFFF' } },
-          right: { style: 'thin', color: { rgb: 'FF7F9DB9' } },
-        }
-      };
-    }
-
-    // Style group header rows
-    for (const { rowIdx: r, groupIdx } of groupHeaderRows) {
-      const fillColor = groupFills[groupIdx % groupFills.length];
-      const borderColor = groupBorders[groupIdx % groupBorders.length];
-      for (let col = 0; col < headers.length; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r, c: col });
-        if (!ws[cellRef]) ws[cellRef] = { v: '' };
-        ws[cellRef].s = {
-          fill: { fgColor: { rgb: fillColor } },
-          font: { bold: true, sz: 11, color: { rgb: borderColor } },
-          alignment: { horizontal: col === 0 ? 'center' : 'left', vertical: 'center' },
-          border: {
-            top: { style: 'medium', color: { rgb: borderColor } },
-            bottom: { style: 'medium', color: { rgb: borderColor } },
-          }
-        };
-      }
-    }
-
-    // Style data rows
-    for (const { rowIdx: r, statusName } of dataRows) {
-      const bgColor = getAutoBgColor(statusName).replace('#', 'FF');
-      for (let col = 0; col < headers.length; col++) {
-        const cellRef = XLSX.utils.encode_cell({ r, c: col });
-        if (!ws[cellRef]) ws[cellRef] = { v: '' };
-        const isStatus = col === 10;
-        ws[cellRef].s = {
-          fill: isStatus ? { fgColor: { rgb: bgColor } } : { fgColor: { rgb: 'FFFFFFFF' } },
-          font: { sz: 10, bold: col === 0 || col === 1, color: { rgb: 'FF1E293B' } },
-          alignment: {
-            horizontal: col === 0 ? 'center' : col === 10 ? 'center' : 'left',
-            vertical: 'center',
-            wrapText: true,
-          },
-          border: {
-            bottom: { style: 'thin', color: { rgb: 'FFCBD5E1' } },
-            right: { style: 'thin', color: { rgb: 'FFCBD5E1' } },
-          }
-        };
-      }
-    }
-
-    // Freeze top row
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-
-    XLSX.utils.book_append_sheet(wb, ws, 'Danh sách UV');
-    const fileName = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.xlsx`;
-    XLSX.writeFile(wb, fileName);
+    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g,'-')}.xls`;
+    a.click();
+    URL.revokeObjectURL(url);
     showToast('✅ Đã xuất Excel', 'success');
   };
+
 
   // ─── Render ──────────────────────────────────────────────────────────────────
 
