@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import {
   Plus, Trash2, Edit2, Search, Filter, X, Save, Settings,
   Download, RotateCw, CheckCircle2, AlertCircle, Loader2,
@@ -884,17 +885,27 @@ function ConfigView({
     e.preventDefault();
     if (!editingGroup?.name) return;
     
-    // Tự động gán code bằng name nếu chưa có (cho các bản ghi mới)
     const groupCode = editingGroup.code || editingGroup.name;
 
     try {
       if (editingGroup.id) {
+        // Lấy code cũ để cascade update candidates
+        const { data: oldData } = await sb.from('settings_groups').select('code').eq('id', editingGroup.id).single();
+        const oldCode = oldData?.code;
+
         const { error } = await sb.from('settings_groups').update({
           code: groupCode,
           name: editingGroup.name,
           description: editingGroup.description || ''
         }).eq('id', editingGroup.id);
         if (error) throw error;
+
+        // Cascade: cập nhật group_type trong candidates nếu code thay đổi
+        if (oldCode && oldCode !== groupCode) {
+          await sb.from('candidates')
+            .update({ group_type: groupCode })
+            .eq('group_type', oldCode);
+        }
       } else {
         const { error } = await sb.from('settings_groups').insert([{
           code: groupCode,
@@ -916,11 +927,22 @@ function ConfigView({
     if (!editingStatus?.name) return;
     try {
       if (editingStatus.id) {
+        // Lấy tên cũ để cascade update candidates
+        const { data: oldData } = await sb.from('settings_statuses').select('name').eq('id', editingStatus.id).single();
+        const oldName = oldData?.name;
+
         const { error } = await sb.from('settings_statuses').update({
           name: editingStatus.name,
           sort_order: editingStatus.sort_order
         }).eq('id', editingStatus.id);
         if (error) throw error;
+
+        // Cascade: cập nhật tất cả candidates đang dùng tên cũ
+        if (oldName && oldName !== editingStatus.name) {
+          await sb.from('candidates')
+            .update({ recruitment_status: editingStatus.name })
+            .eq('recruitment_status', oldName);
+        }
       } else {
         const { error } = await sb.from('settings_statuses').insert([{
           name: editingStatus.name,
@@ -965,10 +987,19 @@ function ConfigView({
     if (!editingReferrer?.name) return;
     try {
       if (editingReferrer.id) {
+        const { data: oldData } = await sb.from('settings_referrers').select('name').eq('id', editingReferrer.id).single();
+        const oldName = oldData?.name;
+
         const { error } = await sb.from('settings_referrers').update({
           name: editingReferrer.name
         }).eq('id', editingReferrer.id);
         if (error) throw error;
+
+        if (oldName && oldName !== editingReferrer.name) {
+          await sb.from('candidates')
+            .update({ referrer: editingReferrer.name })
+            .eq('referrer', oldName);
+        }
       } else {
         const { error } = await sb.from('settings_referrers').insert([{
           name: editingReferrer.name
@@ -1000,10 +1031,19 @@ function ConfigView({
     if (!editingRecruiter?.name) return;
     try {
       if (editingRecruiter.id) {
+        const { data: oldData } = await sb.from('settings_recruiters').select('name').eq('id', editingRecruiter.id).single();
+        const oldName = oldData?.name;
+
         const { error } = await sb.from('settings_recruiters').update({
           name: editingRecruiter.name
         }).eq('id', editingRecruiter.id);
         if (error) throw error;
+
+        if (oldName && oldName !== editingRecruiter.name) {
+          await sb.from('candidates')
+            .update({ recruiter: editingRecruiter.name })
+            .eq('recruiter', oldName);
+        }
       } else {
         const { error } = await sb.from('settings_recruiters').insert([{
           name: editingRecruiter.name
@@ -1297,7 +1337,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<'list' | 'stats' | 'config'>('list');
+  const [activeView, setActiveView] = useState<'list' | 'config'>('list');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // supabase client — có thể được reinit sau khi user lưu settings
@@ -1579,42 +1619,164 @@ export default function App() {
 
   const paged = candidatesWithGroupSTT.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
-  // ── Stats ──
+  // ── Status counts (dùng cho thanh tóm tắt header) ──
   const statusCounts: Record<string, number> = {};
   candidates.forEach(c => {
     const s = c.recruitment_status || 'Chưa xác định';
     statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
 
-  const stats = {
-    total: candidates.length,
-    statusCounts,
-    working: candidates.filter(c => c.recruitment_status?.includes('Đang đi làm')).length,
-    contacted: candidates.filter(c => c.recruitment_status === 'Đang liên hệ').length,
-    notContacted: candidates.filter(c => c.recruitment_status === 'P.TD chưa liên hệ').length,
-  };
+  // Export to Excel
+  const exportExcel = () => {
+    const wb = XLSX.utils.book_new();
+    const wsData: any[][] = [];
 
-  // Export to CSV
-  const exportCSV = () => {
-    const headers = ['STT', 'Nhóm', 'Tên ứng viên', 'Năm sinh', 'SĐT', 'Kinh nghiệm/năng lực', 'Vị trí ứng tuyển', 'Địa điểm mong muốn làm việc', 'Ngày giới thiệu', 'Người giới thiệu', 'PTD nhận HS giới thiệu', 'Tình trạng', 'Ghi chú'];
-    const rows = sorted.map((c, i) => {
-      const groupName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
-      return [
-        (c as any).sttInGroup || (i + 1), groupName,
-        c.full_name, c.birth_year, c.phone, c.experience,
-        c.position, c.desired_location, c.referral_date, c.referrer,
-        c.ptd_received ? 'Đã nhận' : 'Chưa', c.recruitment_status, c.notes
-      ];
-    });
-    const csv = [headers, ...rows].map(r => r.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('✅ Đã xuất CSV', 'success');
+    // Màu nhóm (ARGB hex, bỏ #)
+    const groupFills = [
+      'FFFFF3E0', // cam nhạt
+      'FFE8F5E9', // xanh lá nhạt
+      'FFEDE9FE', // tím nhạt
+      'FFFCE4EC', // hồng nhạt
+      'FFE0F2FE', // xanh dương nhạt
+      'FFFEF9C3', // vàng nhạt
+    ];
+    const groupBorders = [
+      'FFF97316', 'FF22C55E', 'FF8B5CF6',
+      'FFF43F5E', 'FF0EA5E9', 'FFEAB308',
+    ];
+
+    // Header bảng
+    const headers = [
+      'STT', 'Tên ứng viên', 'Năm sinh', 'SĐT',
+      'Kinh nghiệm/Năng lực', 'Vị trí ứng tuyển',
+      'Địa điểm mong muốn làm việc', 'Ngày giới thiệu',
+      'Người giới thiệu', 'NS P.TD nhận', 'Tình trạng', 'Ghi chú'
+    ];
+    wsData.push(headers);
+
+    // Theo dõi row index để apply style sau
+    const headerRowIdx = 0; // 0-based
+    const groupHeaderRows: { rowIdx: number; groupIdx: number }[] = [];
+    const dataRows: { rowIdx: number; statusName: string }[] = [];
+
+    let rowIdx = 1;
+    let lastGroup = '';
+    let sttInGroup = 0;
+
+    for (const c of sorted) {
+      // Header nhóm
+      if (c.group_type !== lastGroup) {
+        lastGroup = c.group_type;
+        sttInGroup = 0;
+        const groupIdx = groups.findIndex(g => g.code === c.group_type);
+        const groupName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
+        const romanNum = toRoman(groupIdx + 1);
+        wsData.push([`${romanNum}  ${groupName}`, '', '', '', '', '', '', '', '', '', '', '']);
+        groupHeaderRows.push({ rowIdx, groupIdx: groupIdx >= 0 ? groupIdx : 0 });
+        rowIdx++;
+      }
+
+      sttInGroup++;
+      wsData.push([
+        sttInGroup,
+        c.full_name || '',
+        c.birth_year || '',
+        c.phone || '',
+        c.experience || '',
+        c.position || '',
+        c.desired_location || '',
+        c.referral_date || '',
+        c.referrer || '',
+        c.recruiter || '',
+        c.recruitment_status || '',
+        c.notes || '',
+      ]);
+      dataRows.push({ rowIdx, statusName: c.recruitment_status || '' });
+      rowIdx++;
+    }
+
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+
+    // Độ rộng cột
+    ws['!cols'] = [
+      { wch: 5 },  // STT
+      { wch: 22 }, // Tên
+      { wch: 9 },  // Năm sinh
+      { wch: 13 }, // SĐT
+      { wch: 22 }, // KN
+      { wch: 25 }, // Vị trí
+      { wch: 28 }, // Địa điểm
+      { wch: 12 }, // Ngày GT
+      { wch: 18 }, // Người GT
+      { wch: 16 }, // NS P.TD
+      { wch: 22 }, // Tình trạng
+      { wch: 30 }, // Ghi chú
+    ];
+
+    // Style header bảng (row 0)
+    for (let col = 0; col < headers.length; col++) {
+      const cellRef = XLSX.utils.encode_cell({ r: headerRowIdx, c: col });
+      if (!ws[cellRef]) ws[cellRef] = { v: headers[col] };
+      ws[cellRef].s = {
+        fill: { fgColor: { rgb: 'FF1A3A6B' } },
+        font: { bold: true, color: { rgb: 'FFFFFFFF' }, sz: 11 },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          bottom: { style: 'medium', color: { rgb: 'FFFFFFFF' } },
+          right: { style: 'thin', color: { rgb: 'FF7F9DB9' } },
+        }
+      };
+    }
+
+    // Style group header rows
+    for (const { rowIdx: r, groupIdx } of groupHeaderRows) {
+      const fillColor = groupFills[groupIdx % groupFills.length];
+      const borderColor = groupBorders[groupIdx % groupBorders.length];
+      for (let col = 0; col < headers.length; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r, c: col });
+        if (!ws[cellRef]) ws[cellRef] = { v: '' };
+        ws[cellRef].s = {
+          fill: { fgColor: { rgb: fillColor } },
+          font: { bold: true, sz: 11, color: { rgb: borderColor } },
+          alignment: { horizontal: col === 0 ? 'center' : 'left', vertical: 'center' },
+          border: {
+            top: { style: 'medium', color: { rgb: borderColor } },
+            bottom: { style: 'medium', color: { rgb: borderColor } },
+          }
+        };
+      }
+    }
+
+    // Style data rows
+    for (const { rowIdx: r, statusName } of dataRows) {
+      const bgColor = getAutoBgColor(statusName).replace('#', 'FF');
+      for (let col = 0; col < headers.length; col++) {
+        const cellRef = XLSX.utils.encode_cell({ r, c: col });
+        if (!ws[cellRef]) ws[cellRef] = { v: '' };
+        const isStatus = col === 10;
+        ws[cellRef].s = {
+          fill: isStatus ? { fgColor: { rgb: bgColor } } : { fgColor: { rgb: 'FFFFFFFF' } },
+          font: { sz: 10, bold: col === 0 || col === 1, color: { rgb: 'FF1E293B' } },
+          alignment: {
+            horizontal: col === 0 ? 'center' : col === 10 ? 'center' : 'left',
+            vertical: 'center',
+            wrapText: true,
+          },
+          border: {
+            bottom: { style: 'thin', color: { rgb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { rgb: 'FFCBD5E1' } },
+          }
+        };
+      }
+    }
+
+    // Freeze top row
+    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Danh sách UV');
+    const fileName = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+    showToast('✅ Đã xuất Excel', 'success');
   };
 
   // ─── Render ──────────────────────────────────────────────────────────────────
@@ -1648,11 +1810,7 @@ export default function App() {
                 activeView === 'list' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
               <Users size={16} /> Danh sách ứng viên
             </button>
-            <button onClick={() => { setActiveView('stats'); setIsSidebarOpen(false); }}
-              className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
-                activeView === 'stats' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
-              <Database size={16} /> Thống kê tổng quan
-            </button>
+
             <button onClick={() => { setActiveView('config'); setIsSidebarOpen(false); }}
               className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
                 activeView === 'config' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
@@ -1707,62 +1865,6 @@ export default function App() {
           />
         )}
 
-        {/* ── Stats View ── */}
-        {activeView === 'stats' && (
-          <div className="space-y-6">
-            <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Thống kê tổng quan</h2>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-              {[
-                { label: 'Tổng ứng viên', value: stats.total, color: 'bg-blue-600' },
-                ...groups.map(g => ({
-                  label: g.name,
-                  value: candidates.filter(c => c.group_type === g.code).length,
-                  color: 'bg-indigo-500'
-                })),
-                { label: 'Đang đi làm', value: stats.working, color: 'bg-emerald-600' },
-              ].slice(0, 6).map(s => (
-                <div key={s.label} className="bg-white rounded-2xl p-5 shadow-sm border border-slate-100">
-                  <div className={`w-10 h-10 ${s.color} rounded-xl flex items-center justify-center mb-3`}>
-                    <Users size={18} className="text-white" />
-                  </div>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest">{s.label}</p>
-                  <p className="text-3xl font-black text-slate-800 mt-1">{s.value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Status distribution */}
-            <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100">
-              <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest mb-4">Phân bổ theo tình trạng</h3>
-              <div className="space-y-3">
-                {statuses.map(status => {
-                  const count = candidates.filter(c => c.recruitment_status === status.name).length;
-                  const pct = stats.total > 0 ? (count / stats.total) * 100 : 0;
-                  return (
-                    <div key={status.id} className="flex items-center gap-3">
-                      <div className="w-40 shrink-0">
-                        <StatusBadge status={status.name} statuses={statuses} />
-                      </div>
-                      <div className="flex-1 h-2 bg-slate-100 rounded-full overflow-hidden">
-                        <div className="h-full bg-blue-500 rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-sm font-black text-slate-600 w-8 text-right">{count}</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* ── Cập nhật nhanh tình trạng tuyển dụng ── */}
-            <QuickStatusUpdateTool
-              candidates={candidates}
-              sb={sb}
-              onUpdated={loadData}
-              showToast={showToast}
-              statuses={statuses}
-            />
-          </div>
-        )}
 
         {/* ── List View ── */}
         {activeView === 'list' && (
@@ -1780,7 +1882,7 @@ export default function App() {
               {/* Status Summary */}
               <div className="hidden lg:flex items-center gap-4 px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl overflow-x-auto max-w-[50%] no-scrollbar">
                 {statuses.map(s => {
-                  const count = stats.statusCounts[s.name] || 0;
+                  const count = statusCounts[s.name] || 0;
                   if (count === 0) return null;
                   return (
                     <div key={s.id} className="flex items-center gap-1.5 whitespace-nowrap">
@@ -1791,12 +1893,12 @@ export default function App() {
                     </div>
                   );
                 })}
-                {stats.statusCounts['Chưa xác định'] > 0 && (
+                {statusCounts['Chưa xác định'] > 0 && (
                   <div className="flex items-center gap-1.5 whitespace-nowrap">
                     <span className="text-[12px] font-bold text-slate-50 uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 text-slate-600 shadow-sm">
                       Chưa xác định
                     </span>
-                    <span className="text-[12px] font-black text-blue-700">{stats.statusCounts['Chưa xác định']}</span>
+                    <span className="text-[12px] font-black text-blue-700">{statusCounts['Chưa xác định']}</span>
                   </div>
                 )}
               </div>
@@ -1823,9 +1925,9 @@ export default function App() {
                   <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Làm mới
                 </button>
                 {/* Export */}
-                <button onClick={exportCSV}
+                <button onClick={exportExcel}
                   className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
-                  <FileDown size={13} /> Xuất CSV
+                  <FileDown size={13} /> Xuất Excel
                 </button>
                 {/* Add */}
                 <button onClick={() => setModal({ type: 'add', candidate: { ...EMPTY_CANDIDATE } })}
@@ -1963,7 +2065,7 @@ export default function App() {
                                     </td>
                                   </tr>
                                 )}
-                                <tr style={hl?.key ? { background: hl.bg, color: hl.text } : { background: color.stripe }}>
+                                <tr style={hl?.key ? { background: hl.bg, color: hl.text } : {}}>
                                   <td className="text-center font-bold text-blue-700 text-xs">{(c as any).sttInGroup}</td>
                                   <td className="font-semibold">{c.full_name}</td>
                                   <td className="text-center">{c.birth_year}</td>
