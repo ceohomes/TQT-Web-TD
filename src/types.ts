@@ -15,6 +15,18 @@ export interface RecruitmentStatus {
   created_at?: string;
 }
 
+export interface Referrer {
+  id: string;
+  name: string;
+  created_at?: string;
+}
+
+export interface Recruiter {
+  id: string;
+  name: string;
+  created_at?: string;
+}
+
 export interface Candidate {
   id: string;
   stt?: number;           // Số thứ tự (tự động từ DB hoặc tính toán)
@@ -29,6 +41,7 @@ export interface Candidate {
   referrer?: string;      // Người giới thiệu
   ptd_received?: boolean; // PTD nhận HS giới thiệu
   ptd_received_date?: string; // Ngày PTD nhận HS
+  recruiter?: string;     // NS P.TD nhận
   recruitment_status?: string; // Tình trạng tuyển dụng
   highlight_color?: string; // Màu highlight (green, blue, yellow, red, orange)
   notes?: string;         // Ghi chú

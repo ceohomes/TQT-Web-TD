@@ -6,7 +6,7 @@ import {
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
 } from 'lucide-react';
 import { supabase as supabaseInit, reinitSupabase } from './supabase';
-import type { Candidate, Group, RecruitmentStatus, Toast } from './types';
+import type { Candidate, Group, RecruitmentStatus, Referrer, Recruiter, Toast } from './types';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -15,6 +15,22 @@ function cn(...inputs: Parameters<typeof clsx>) {
 }
 
 // ─── Constants ───────────────────────────────────────────────────────────────
+
+const toRoman = (num: number) => {
+  if (num <= 0) return '';
+  const map: [number, string][] = [
+    [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']
+  ];
+  let result = '';
+  let n = num;
+  for (const [val, char] of map) {
+    while (n >= val) {
+      result += char;
+      n -= val;
+    }
+  }
+  return result;
+};
 
 const HIGHLIGHT_COLORS: { key: string; label: string; bg: string; text: string; border: string }[] = [
   { key: '', label: 'Mặc định', bg: '', text: '', border: '' },
@@ -49,8 +65,7 @@ const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
   desired_location: '',
   referral_date: '',
   referrer: '',
-  ptd_received: false,
-  ptd_received_date: '',
+  recruiter: '',
   recruitment_status: '',
   highlight_color: '',
   notes: '',
@@ -213,182 +228,435 @@ function SettingsModal({ onClose, onSave }: {
 
 // ─── Candidate Form Modal ─────────────────────────────────────────────────────
 
+const formatDateInput = (value: string) => {
+  // Remove all non-digit characters
+  const digits = value.replace(/\D/g, '');
+  
+  // Format as dd/mm/yyyy
+  if (digits.length <= 2) {
+    return digits;
+  } else if (digits.length <= 4) {
+    return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  } else {
+    return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4, 8)}`;
+  }
+};
+
+const isValidPhone = (phone: string) => {
+  if (!phone) return true;
+  const cleanPhone = phone.replace(/\s/g, '');
+  return /^(0[3|5|7|8|9])[0-9]{8}$/.test(cleanPhone);
+};
+
 function CandidateModal({
-  candidate, onClose, onSave, mode, groups, statuses
+  candidate, onClose, onSave, mode, groups, statuses, referrers, recruiters
 }: {
   candidate: Partial<Candidate>;
   onClose: () => void;
-  onSave: (data: Partial<Candidate>) => void;
+  onSave: (data: Partial<Candidate> | Partial<Candidate>[]) => void;
   mode: 'add' | 'edit';
   groups: Group[];
   statuses: RecruitmentStatus[];
+  referrers: Referrer[];
+  recruiters: Recruiter[];
 }) {
-  const [form, setForm] = useState<Partial<Candidate>>(candidate);
+  const [rows, setRows] = useState<Partial<Candidate>[]>(
+    mode === 'add' ? [candidate] : [candidate]
+  );
 
+  // For single edit mode
+  const [form, setForm] = useState<Partial<Candidate>>(candidate);
   const set = (key: keyof Candidate, val: any) => setForm(p => ({ ...p, [key]: val }));
 
-  const highlight = HIGHLIGHT_COLORS.find(c => c.key === form.highlight_color) || HIGHLIGHT_COLORS[0];
+  const updateRow = (idx: number, key: keyof Candidate, val: any) => {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, [key]: val } : r));
+  };
 
+  const addRow = () => setRows(prev => [...prev, { ...EMPTY_CANDIDATE, group_type: prev[prev.length - 1]?.group_type || '' }]);
+  const removeRow = (idx: number) => setRows(prev => prev.filter((_, i) => i !== idx));
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    const target = e.target as HTMLElement;
+    const focusedField = target.getAttribute('data-field') as keyof Candidate | null;
+    const focusedRowIdx = parseInt(target.getAttribute('data-row-idx') || '0');
+
+    const text = e.clipboardData.getData('text');
+    if (!text) return;
+
+    const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+    if (lines.length === 0) return;
+
+    e.preventDefault();
+
+    const BULK_FIELDS: (keyof Candidate)[] = [
+      'full_name', 'birth_year', 'phone', 'experience', 'position', 
+      'desired_location', 'referral_date', 'referrer', 'recruiter', 
+      'recruitment_status', 'notes'
+    ];
+
+    const startFieldIdx = focusedField ? BULK_FIELDS.indexOf(focusedField) : 0;
+    if (startFieldIdx === -1) return;
+
+    setRows(prev => {
+      const nextRows = [...prev];
+      
+      lines.forEach((line, lineOffset) => {
+        const cells = line.split('\t');
+        const targetRowIdx = focusedRowIdx + lineOffset;
+        
+        // Add new row if needed
+        if (targetRowIdx >= nextRows.length) {
+          nextRows.push({ ...EMPTY_CANDIDATE, group_type: prev[0]?.group_type || '' });
+        }
+        
+        const row = { ...nextRows[targetRowIdx] };
+        
+        cells.forEach((cellVal, cellOffset) => {
+          const fieldIdx = startFieldIdx + cellOffset;
+          if (fieldIdx < BULK_FIELDS.length) {
+            const fieldKey = BULK_FIELDS[fieldIdx];
+            let val = cellVal.trim();
+            if (fieldKey === 'referral_date') {
+              val = formatDateInput(val);
+            }
+            row[fieldKey] = val as any;
+          }
+        });
+        
+        nextRows[targetRowIdx] = row;
+      });
+      
+      return nextRows;
+    });
+  };
+
+  if (mode === 'edit') {
+    const highlight = HIGHLIGHT_COLORS.find(c => c.key === form.highlight_color) || HIGHLIGHT_COLORS[0];
+    return (
+      <div className="modal-overlay" onClick={onClose}>
+        <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+          {/* Header */}
+          <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #1e4480 100%)' }}>
+            <div className="flex items-center gap-3">
+              <div className="p-2 bg-white/15 rounded-xl">
+                <Edit2 size={18} className="text-white" />
+              </div>
+              <div>
+                <h3 className="text-white font-black text-base uppercase tracking-tight">Chỉnh sửa ứng viên</h3>
+                <p className="text-blue-200 text-xs mt-0.5">{form.full_name || 'Điền thông tin bên dưới'}</p>
+              </div>
+            </div>
+            <button onClick={onClose} className="p-2 text-blue-200 hover:text-white transition-colors"><X size={18} /></button>
+          </div>
+
+          {/* Body */}
+          <div className="p-6 overflow-y-auto max-h-[calc(92vh-140px)] space-y-5">
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Nhóm <span className="text-red-500">*</span></label>
+                <select value={form.group_type} onChange={e => set('group_type', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
+                  <option value="">-- Chọn nhóm --</option>
+                  {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+                </select>
+              </div>
+              <div className="col-span-2 space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên ứng viên <span className="text-red-500">*</span></label>
+                <input value={form.full_name || ''} onChange={e => set('full_name', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Năm sinh</label>
+                <input value={form.birth_year || ''} onChange={e => set('birth_year', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+              <div className="space-y-1.5 relative group/phone">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Số điện thoại <span className="text-red-500">*</span></label>
+                <input value={form.phone || ''} onChange={e => set('phone', e.target.value)}
+                  className={cn(
+                    "w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all",
+                    form.phone && !isValidPhone(form.phone) && "border-red-400 text-red-600 bg-red-50"
+                  )} />
+                {form.phone && !isValidPhone(form.phone) && (
+                  <div className="absolute left-0 top-full mt-1 px-2 py-1 bg-red-600 text-white text-[10px] rounded shadow-lg z-20 whitespace-nowrap opacity-0 group-hover/phone:opacity-100 transition-opacity pointer-events-none flex items-center gap-1">
+                    <AlertCircle size={10} /> SĐT không đúng định dạng (10 số)
+                  </div>
+                )}
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Kinh nghiệm/Năng lực</label>
+                <input value={form.experience || ''} onChange={e => set('experience', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Vị trí ứng tuyển</label>
+                <input value={form.position || ''} onChange={e => set('position', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Địa điểm mong muốn làm việc</label>
+                <input value={form.desired_location || ''} onChange={e => set('desired_location', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày giới thiệu</label>
+                <input value={form.referral_date || ''} onChange={e => set('referral_date', formatDateInput(e.target.value))}
+                  placeholder="dd/mm/yyyy"
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Người giới thiệu</label>
+                <select 
+                  value={form.referrer || ''} 
+                  onChange={e => set('referrer', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all"
+                >
+                  <option value="">-- Chọn người giới thiệu --</option>
+                  {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tình trạng</label>
+                <select value={form.recruitment_status || ''} onChange={e => set('recruitment_status', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
+                  <option value="">-- Chọn --</option>
+                  {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                </select>
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">NS P.TD nhận</label>
+                <select 
+                  value={form.recruiter || ''} 
+                  onChange={e => set('recruiter', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all"
+                >
+                  <option value="">-- Chọn nhân sự --</option>
+                  {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ghi chú</label>
+              <textarea value={form.notes || ''} onChange={e => set('notes', e.target.value)} rows={3}
+                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all resize-none" />
+            </div>
+          </div>
+
+          {/* Footer */}
+          <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+            <button onClick={onClose} className="px-6 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-all">Hủy</button>
+            <button 
+              onClick={() => {
+                if (form.phone && !isValidPhone(form.phone)) {
+                  // Just prevent save or let it pass? 
+                  // Usually it's better to prevent save if invalid.
+                  return;
+                }
+                onSave(form);
+              }} 
+              disabled={form.phone ? !isValidPhone(form.phone) : false}
+              className={cn(
+                "px-8 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white font-black text-sm transition-all shadow-lg flex items-center gap-2",
+                form.phone && !isValidPhone(form.phone) ? "opacity-50 cursor-not-allowed grayscale" : "hover:from-blue-700 hover:to-blue-900"
+              )}
+            >
+              <Save size={15} /> Lưu thay đổi
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Bulk Add Mode
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+      <div className="modal-content bg-white rounded-2xl w-full max-w-[95vw] max-h-[92vh] overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
         {/* Header */}
-        <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #1e4480 100%)' }}>
+        <div className="px-7 py-4 border-b border-slate-100 flex items-center justify-between shrink-0" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #1e4480 100%)' }}>
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/15 rounded-xl">
-              {mode === 'add' ? <Plus size={18} className="text-white" /> : <Edit2 size={18} className="text-white" />}
+              <Plus size={18} className="text-white" />
             </div>
             <div>
-              <h3 className="text-white font-black text-base uppercase tracking-tight">
-                {mode === 'add' ? 'Thêm ứng viên mới' : 'Chỉnh sửa ứng viên'}
-              </h3>
-              <p className="text-blue-200 text-xs mt-0.5">{form.full_name || 'Điền thông tin bên dưới'}</p>
+              <h3 className="text-white font-black text-base uppercase tracking-tight">Thêm ứng viên mới (Dạng bảng)</h3>
+              <p className="text-blue-200 text-xs mt-0.5">Nhập liệu nhanh hoặc Copy/Paste từ Excel</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-blue-200 hover:text-white transition-colors"><X size={18} /></button>
         </div>
 
         {/* Body */}
-        <div className="p-6 overflow-y-auto max-h-[calc(92vh-140px)] space-y-5">
-          {/* Nhóm & Tên */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Nhóm</label>
-              <select value={form.group_type} onChange={e => set('group_type', e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
-                <option value="">-- Chọn nhóm --</option>
-                {groups.map(g => (
-                  <option key={g.id} value={g.code}>{g.code} – {g.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="col-span-2 space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên ứng viên <span className="text-red-500">*</span></label>
-              <input value={form.full_name || ''} onChange={e => set('full_name', e.target.value)}
-                placeholder="Nguyễn Văn A"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-          </div>
-
-          {/* Năm sinh & SĐT & Kinh nghiệm */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Năm sinh</label>
-              <input value={form.birth_year || ''} onChange={e => set('birth_year', e.target.value)}
-                placeholder="1990"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Số điện thoại</label>
-              <input value={form.phone || ''} onChange={e => set('phone', e.target.value)}
-                placeholder="0900 000 000"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Kinh nghiệm/Năng lực</label>
-              <input value={form.experience || ''} onChange={e => set('experience', e.target.value)}
-                placeholder="Đã có KN, Lđpt..."
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-          </div>
-
-          {/* Vị trí & Địa điểm */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Vị trí ứng tuyển</label>
-              <input value={form.position || ''} onChange={e => set('position', e.target.value)}
-                placeholder="Thợ hàn, Giám sát..."
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Địa điểm mong muốn</label>
-              <input value={form.desired_location || ''} onChange={e => set('desired_location', e.target.value)}
-                placeholder="Hà Nội, Thanh Hoá..."
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-          </div>
-
-          {/* Ngày giới thiệu & Người giới thiệu */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày giới thiệu</label>
-              <input value={form.referral_date || ''} onChange={e => set('referral_date', e.target.value)}
-                placeholder="dd/mm/yyyy hoặc T1/2026"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Người giới thiệu</label>
-              <input value={form.referrer || ''} onChange={e => set('referrer', e.target.value)}
-                placeholder="Trần Văn B"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-          </div>
-
-          {/* PTD & Tình trạng */}
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">PTD nhận HS</label>
-              <div className="flex items-center gap-3 h-[42px]">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.ptd_received || false} onChange={e => set('ptd_received', e.target.checked)}
-                    className="w-4 h-4 accent-blue-600" />
-                  <span className="text-sm font-medium text-slate-700">Đã nhận</span>
-                </label>
+        <div className="p-4 overflow-auto flex-1">
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-6">
+              <div className="space-y-1">
+                <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Nhóm mặc định <span className="text-red-500">*</span></label>
+                <select 
+                  value={rows[0]?.group_type || ''} 
+                  onChange={e => setRows(prev => prev.map(r => ({ ...r, group_type: e.target.value })))}
+                  className="block w-48 border border-slate-200 rounded-lg px-3 py-1.5 text-sm font-bold outline-none focus:border-blue-500 shadow-sm"
+                >
+                  <option value="">-- Chọn nhóm --</option>
+                  {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+                </select>
+              </div>
+              <div className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2 flex items-center gap-2">
+                <Database size={14} className="text-blue-500" />
+                <p className="text-xs text-blue-700 font-medium italic">Mẹo: Copy vùng dữ liệu từ Excel và nhấn Ctrl+V vào bảng bên dưới để nhập hàng loạt.</p>
               </div>
             </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày PTD nhận</label>
-              <input value={form.ptd_received_date || ''} onChange={e => set('ptd_received_date', e.target.value)}
-                placeholder="dd/mm/yyyy"
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tình trạng tuyển dụng</label>
-              <select value={form.recruitment_status || ''} onChange={e => set('recruitment_status', e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
-                <option value="">-- Chọn trạng thái --</option>
-                {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-              </select>
-            </div>
+            <button onClick={addRow} className="flex items-center gap-1.5 px-4 py-2 bg-orange-500 text-white rounded-xl text-sm font-bold hover:bg-orange-600 transition-all shadow-md">
+              <Plus size={14} /> Thêm dòng mới
+            </button>
           </div>
 
-          {/* Màu highlight & Ghi chú */}
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu nổi bật</label>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {HIGHLIGHT_COLORS.map(c => (
-                  <button key={c.key || '_none'}
-                    type="button"
-                    onClick={() => set('highlight_color', c.key)}
-                    title={c.label}
-                    className={cn(
-                      'w-7 h-7 rounded-lg border-2 transition-all',
-                      form.highlight_color === c.key ? 'border-blue-600 scale-110 shadow-md' : 'border-slate-200 hover:border-slate-400'
-                    )}
-                    style={c.bg ? { background: c.bg } : { background: 'white', backgroundImage: 'repeating-linear-gradient(45deg, #f1f5f9, #f1f5f9 3px, white 3px, white 6px)' }}
-                  />
+          <div className="border border-slate-400 rounded-xl overflow-hidden shadow-sm bg-white">
+            <table className="w-full text-[12px] border-collapse min-w-[1800px] font-roboto">
+              <thead className="bg-blue-50 sticky top-0 z-10">
+                <tr className="text-blue-900 uppercase font-black tracking-tighter text-[12px]">
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-10 text-center bg-blue-50">STT</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-56 text-center bg-blue-50">Tên ứng viên *</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-20 text-center bg-blue-50">Năm sinh</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-32 text-center bg-blue-50">SĐT *</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Kinh nghiệm/Năng lực</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Vị trí ứng tuyển</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Địa điểm làm việc</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-32 text-center bg-blue-50">Ngày giới thiệu</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">Người giới thiệu</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">NS P.TD nhận</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">Tình trạng</th>
+                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Ghi chú</th>
+                  <th className="p-2 border-b-2 border-blue-200 w-10 bg-blue-50"></th>
+                </tr>
+              </thead>
+              <tbody onPaste={handlePaste}>
+                {rows.map((row, idx) => (
+                  <tr key={idx} className="hover:bg-blue-50/30 transition-colors group border-b border-slate-300">
+                    <td className="p-1 border-r border-slate-300 text-center text-slate-500 font-bold bg-slate-50/50">{idx + 1}</td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.full_name || ''} onChange={e => updateRow(idx, 'full_name', e.target.value)}
+                        data-field="full_name" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 font-bold text-slate-800 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="Nhập tên..." />
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.birth_year || ''} onChange={e => updateRow(idx, 'birth_year', e.target.value)}
+                        data-field="birth_year" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="19xx" />
+                    </td>
+                    <td className="p-1 border-r border-slate-300 relative group/phone">
+                      <input value={row.phone || ''} onChange={e => updateRow(idx, 'phone', e.target.value)}
+                        data-field="phone" data-row-idx={idx}
+                        className={cn(
+                          "w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]",
+                          row.phone && !isValidPhone(row.phone) && "text-red-600 font-bold bg-red-50 border border-red-400 shadow-[inset_0_0_0_1px_rgba(220,38,38,0.2)]"
+                        )} 
+                        placeholder="09..." 
+                      />
+                      {row.phone && !isValidPhone(row.phone) && (
+                        <div className="absolute left-1/2 bottom-full mb-1 -translate-x-1/2 px-2 py-1 bg-red-600 text-white text-[10px] rounded shadow-lg z-20 whitespace-nowrap opacity-0 group-hover/phone:opacity-100 transition-opacity pointer-events-none flex items-center gap-1">
+                          <AlertCircle size={10} /> SĐT không đúng định dạng (10 số)
+                        </div>
+                      )}
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.experience || ''} onChange={e => updateRow(idx, 'experience', e.target.value)}
+                        data-field="experience" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.position || ''} onChange={e => updateRow(idx, 'position', e.target.value)}
+                        data-field="position" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.desired_location || ''} onChange={e => updateRow(idx, 'desired_location', e.target.value)}
+                        data-field="desired_location" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.referral_date || ''} 
+                        onChange={e => updateRow(idx, 'referral_date', formatDateInput(e.target.value))}
+                        data-field="referral_date" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="dd/mm/yyyy" />
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <select 
+                        value={row.referrer || ''} 
+                        onChange={e => updateRow(idx, 'referrer', e.target.value)}
+                        data-field="referrer" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]"
+                      >
+                        <option value="">-- Chọn --</option>
+                        {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <select 
+                        value={row.recruiter || ''} 
+                        onChange={e => updateRow(idx, 'recruiter', e.target.value)}
+                        data-field="recruiter" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]"
+                      >
+                        <option value="">-- Chọn --</option>
+                        {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <select value={row.recruitment_status || ''} onChange={e => updateRow(idx, 'recruitment_status', e.target.value)}
+                        data-field="recruitment_status" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]">
+                        <option value="">-- Chọn --</option>
+                        {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <input value={row.notes || ''} onChange={e => updateRow(idx, 'notes', e.target.value)}
+                        data-field="notes" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
+                    </td>
+                    <td className="p-1 text-center">
+                      <button onClick={() => removeRow(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-1" title="Xóa dòng">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
                 ))}
-              </div>
-              {highlight.key && <p className="text-xs text-slate-500 font-medium">{highlight.label}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ghi chú</label>
-              <textarea value={form.notes || ''} onChange={e => set('notes', e.target.value)}
-                rows={3}
-                placeholder="Thông tin bổ sung..."
-                className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all resize-none" />
-            </div>
+              </tbody>
+            </table>
           </div>
         </div>
 
         {/* Footer */}
-        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
+        <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50 shrink-0">
           <button onClick={onClose} className="px-6 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-all">Hủy</button>
-          <button onClick={() => onSave(form)}
-            className="px-8 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white font-black text-sm hover:from-blue-700 hover:to-blue-900 transition-all shadow-lg flex items-center gap-2">
-            <Save size={15} />
-            {mode === 'add' ? 'Thêm ứng viên' : 'Lưu thay đổi'}
+          <button 
+            onClick={() => {
+              const validRows = rows.filter(r => r.full_name?.trim());
+              const hasInvalidPhone = validRows.some(r => r.phone && !isValidPhone(r.phone));
+              if (hasInvalidPhone) return;
+              onSave(validRows);
+            }}
+            disabled={rows.some(r => r.full_name?.trim() && r.phone && !isValidPhone(r.phone))}
+            className={cn(
+              "px-10 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white font-black text-sm transition-all shadow-lg flex items-center gap-2",
+              rows.some(r => r.full_name?.trim() && r.phone && !isValidPhone(r.phone)) ? "opacity-50 cursor-not-allowed grayscale" : "hover:from-blue-700 hover:to-blue-900"
+            )}
+          >
+            <Save size={16} /> Lưu tất cả ({rows.filter(r => r.full_name?.trim()).length} ứng viên)
           </button>
         </div>
       </div>
@@ -426,28 +694,27 @@ function ConfirmDeleteModal({ name, onConfirm, onClose }: {
 
 // ─── Status Badge ─────────────────────────────────────────────────────────────
 
-function StatusBadge({ status, statuses = [] }: { status: string; statuses?: RecruitmentStatus[] }) {
-  const dynamicStatus = statuses.find(s => s.name === status);
-  const colorMap: Record<string, { bg: string; color: string }> = {
-    'Đang đi làm': { bg: '#bbf7d0', color: '#14532d' },
-    'Đang đi làm ở DA KCN Thanh Hoá': { bg: '#bbf7d0', color: '#14532d' },
-    'Đã ký hợp đồng': { bg: '#a5f3fc', color: '#164e63' },
-    'Đang phỏng vấn': { bg: '#fde68a', color: '#78350f' },
-    'Chờ kết quả': { bg: '#fed7aa', color: '#9a3412' },
-    'P.TD chưa liên hệ': { bg: '#e2e8f0', color: '#475569' },
-    'Đang liên hệ': { bg: '#bfdbfe', color: '#1e3a8a' },
-    'Không phù hợp': { bg: '#fecaca', color: '#7f1d1d' },
-    'Hủy / Từ chối': { bg: '#fecaca', color: '#7f1d1d' },
-  };
+// Hàm lấy màu nền tự động dựa trên nội dung (phù hợp với nội dung)
+const getAutoBgColor = (name: string) => {
+  const n = name.toLowerCase();
+  if (n.includes('đi làm') || n.includes('thành công') || n.includes('nhận')) return '#bbf7d0'; // Xanh lá nhạt
+  if (n.includes('hợp đồng') || n.includes('ký')) return '#a5f3fc'; // Xanh cyan nhạt
+  if (n.includes('phỏng vấn') || n.includes('test')) return '#fde68a'; // Vàng nhạt
+  if (n.includes('thủ tục') || n.includes('pv đạt')) return '#e9d5ff'; // Tím nhạt (Cho PV Đạt/Đang làm thủ tục)
+  if (n.includes('chờ') || n.includes('kết quả')) return '#fed7aa'; // Cam nhạt
+  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Xanh dương nhạt
+  if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại')) return '#fecaca'; // Đỏ nhạt
+  return '#f1f5f9'; // Xám nhạt mặc định
+};
 
-  let style = colorMap[status] || { bg: '#f1f5f9', color: '#475569' };
+function StatusBadge({ status }: { status: string; statuses?: RecruitmentStatus[] }) {
+  // Mặc định màu chữ là đen theo yêu cầu của người dùng
+  const textColor = '#000000';
 
-  if (dynamicStatus && dynamicStatus.color_bg) {
-    style = { bg: dynamicStatus.color_bg, color: dynamicStatus.color_text || '#000000' };
-  }
+  const bgColor = getAutoBgColor(status);
 
   return (
-    <span className="status-badge" style={{ background: style.bg, color: style.color }}>
+    <span className="status-badge" style={{ background: bgColor, color: textColor }}>
       {status}
     </span>
   );
@@ -520,7 +787,7 @@ function QuickStatusUpdateTool({
               .sort((a, b) => (a.group_type + a.full_name).localeCompare(b.group_type + b.full_name))
               .map(c => (
                 <option key={c.id} value={c.id}>
-                  [{c.group_type}] {c.full_name}
+                  {c.full_name}
                 </option>
               ))}
           </select>
@@ -576,33 +843,41 @@ function QuickStatusUpdateTool({
 // ─── Config View Component ───────────────────────────────────────────────────
 
 function ConfigView({
-  sb, groups, statuses, showToast, onUpdated
+  sb, groups, statuses, referrers, recruiters, showToast, onUpdated
 }: {
   sb: any;
   groups: Group[];
   statuses: RecruitmentStatus[];
+  referrers: Referrer[];
+  recruiters: Recruiter[];
   showToast: (msg: string, type: Toast['type']) => void;
   onUpdated: () => void;
 }) {
   const [editingGroup, setEditingGroup] = useState<Partial<Group> | null>(null);
   const [editingStatus, setEditingStatus] = useState<Partial<RecruitmentStatus> | null>(null);
+  const [editingReferrer, setEditingReferrer] = useState<Partial<Referrer> | null>(null);
+  const [editingRecruiter, setEditingRecruiter] = useState<Partial<Recruiter> | null>(null);
 
   const handleSaveGroup = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingGroup?.code || !editingGroup?.name) return;
+    if (!editingGroup?.name) return;
+    
+    // Tự động gán code bằng name nếu chưa có (cho các bản ghi mới)
+    const groupCode = editingGroup.code || editingGroup.name;
+
     try {
       if (editingGroup.id) {
         const { error } = await sb.from('settings_groups').update({
-          code: editingGroup.code,
+          code: groupCode,
           name: editingGroup.name,
-          description: editingGroup.description
+          description: editingGroup.description || ''
         }).eq('id', editingGroup.id);
         if (error) throw error;
       } else {
         const { error } = await sb.from('settings_groups').insert([{
-          code: editingGroup.code,
+          code: groupCode,
           name: editingGroup.name,
-          description: editingGroup.description
+          description: editingGroup.description || ''
         }]);
         if (error) throw error;
       }
@@ -621,16 +896,12 @@ function ConfigView({
       if (editingStatus.id) {
         const { error } = await sb.from('settings_statuses').update({
           name: editingStatus.name,
-          color_bg: editingStatus.color_bg,
-          color_text: editingStatus.color_text,
           sort_order: editingStatus.sort_order
         }).eq('id', editingStatus.id);
         if (error) throw error;
       } else {
         const { error } = await sb.from('settings_statuses').insert([{
           name: editingStatus.name,
-          color_bg: editingStatus.color_bg,
-          color_text: editingStatus.color_text,
           sort_order: editingStatus.sort_order
         }]);
         if (error) throw error;
@@ -667,6 +938,76 @@ function ConfigView({
     }
   };
 
+  const handleSaveReferrer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingReferrer?.name) return;
+    try {
+      if (editingReferrer.id) {
+        const { error } = await sb.from('settings_referrers').update({
+          name: editingReferrer.name
+        }).eq('id', editingReferrer.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('settings_referrers').insert([{
+          name: editingReferrer.name
+        }]);
+        if (error) throw error;
+      }
+      showToast('✅ Đã lưu người giới thiệu', 'success');
+      setEditingReferrer(null);
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}. Bạn đã tạo bảng settings_referrers chưa?`, 'error');
+    }
+  };
+
+  const deleteReferrer = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa người giới thiệu này?')) return;
+    try {
+      const { error } = await sb.from('settings_referrers').delete().eq('id', id);
+      if (error) throw error;
+      showToast('✅ Đã xóa người giới thiệu', 'success');
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
+  const handleSaveRecruiter = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingRecruiter?.name) return;
+    try {
+      if (editingRecruiter.id) {
+        const { error } = await sb.from('settings_recruiters').update({
+          name: editingRecruiter.name
+        }).eq('id', editingRecruiter.id);
+        if (error) throw error;
+      } else {
+        const { error } = await sb.from('settings_recruiters').insert([{
+          name: editingRecruiter.name
+        }]);
+        if (error) throw error;
+      }
+      showToast('✅ Đã lưu nhân sự P.TD', 'success');
+      setEditingRecruiter(null);
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}. Bạn đã tạo bảng settings_recruiters chưa?`, 'error');
+    }
+  };
+
+  const deleteRecruiter = async (id: string) => {
+    if (!confirm('Bạn có chắc chắn muốn xóa nhân sự này?')) return;
+    try {
+      const { error } = await sb.from('settings_recruiters').delete().eq('id', id);
+      if (error) throw error;
+      showToast('✅ Đã xóa nhân sự P.TD', 'success');
+      onUpdated();
+    } catch (e: any) {
+      showToast(`Lỗi: ${e.message}`, 'error');
+    }
+  };
+
   return (
     <div className="space-y-8">
       <div className="flex items-center gap-3">
@@ -675,7 +1016,7 @@ function ConfigView({
         </div>
         <div>
           <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">Cấu hình Danh mục</h2>
-          <p className="text-sm text-slate-500">Quản lý mã nhóm và tình trạng tuyển dụng</p>
+          <p className="text-sm text-slate-500">Quản lý nhóm và tình trạng tuyển dụng</p>
         </div>
       </div>
 
@@ -697,10 +1038,9 @@ function ConfigView({
               <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="bg-blue-600 text-white text-[10px] font-black px-2 py-0.5 rounded-md">{g.code}</span>
+                    <div className="w-2 h-2 bg-blue-600 rounded-full" />
                     <span className="font-bold text-slate-800">{g.name}</span>
                   </div>
-                  {g.description && <p className="text-xs text-slate-500 mt-1">{g.description}</p>}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
                   <button onClick={() => setEditingGroup(g)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
@@ -719,24 +1059,71 @@ function ConfigView({
                 </div>
                 <div className="p-6 space-y-4">
                   <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Mã nhóm (VD: I, II, III)</label>
-                    <input required value={editingGroup.code} onChange={e => setEditingGroup({ ...editingGroup, code: e.target.value })}
-                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="space-y-1.5">
                     <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên nhóm</label>
                     <input required value={editingGroup.name} onChange={e => setEditingGroup({ ...editingGroup, name: e.target.value })}
                       className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500" />
-                  </div>
-                  <div className="space-y-1.5">
-                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Mô tả</label>
-                    <textarea value={editingGroup.description || ''} onChange={e => setEditingGroup({ ...editingGroup, description: e.target.value })}
-                      rows={2} className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-blue-500 resize-none" />
                   </div>
                 </div>
                 <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
                   <button type="button" onClick={() => setEditingGroup(null)} className="px-4 py-2 text-sm font-bold text-slate-600">Hủy</button>
                   <button type="submit" className="px-6 py-2 bg-blue-600 text-white rounded-xl text-sm font-black shadow-lg">Lưu</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
+
+        {/* Referrers Management */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+              <Users size={16} className="text-orange-500" /> Người giới thiệu
+            </h3>
+            <button onClick={() => setEditingReferrer({ name: '' })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-orange-50 text-orange-600 rounded-lg text-xs font-bold hover:bg-orange-600 hover:text-white transition-all">
+              <Plus size={14} /> Thêm người GT
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {referrers.map(r => (
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-orange-200 transition-all">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-orange-600 rounded-full" />
+                    <span className="font-bold text-slate-800">{r.name}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => setEditingReferrer(r)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
+                  <button onClick={() => deleteReferrer(r.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+            {referrers.length === 0 && (
+              <div className="py-10 text-center border-2 border-dashed border-slate-100 rounded-xl">
+                <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Chưa có người giới thiệu</p>
+              </div>
+            )}
+          </div>
+
+          {editingReferrer && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <form onSubmit={handleSaveReferrer} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="bg-orange-600 px-6 py-4 flex items-center justify-between">
+                  <h3 className="text-white font-black text-base uppercase tracking-tight">{editingReferrer.id ? 'Sửa người GT' : 'Thêm người GT mới'}</h3>
+                  <button type="button" onClick={() => setEditingReferrer(null)} className="text-white/60 hover:text-white"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Họ và tên</label>
+                    <input required value={editingReferrer.name} onChange={e => setEditingReferrer({ ...editingReferrer, name: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-orange-500" />
+                  </div>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+                  <button type="button" onClick={() => setEditingReferrer(null)} className="px-4 py-2 text-sm font-bold text-slate-600">Hủy</button>
+                  <button type="submit" className="px-6 py-2 bg-orange-600 text-white rounded-xl text-sm font-black shadow-lg">Lưu</button>
                 </div>
               </form>
             </div>
@@ -785,26 +1172,7 @@ function ConfigView({
                     <input required value={editingStatus.name} onChange={e => setEditingStatus({ ...editingStatus, name: e.target.value })}
                       className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-emerald-500" />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu nền (HEX)</label>
-                      <div className="flex gap-2">
-                        <input type="color" value={editingStatus.color_bg} onChange={e => setEditingStatus({ ...editingStatus, color_bg: e.target.value })}
-                          className="w-10 h-10 p-0 border-none bg-transparent cursor-pointer" />
-                        <input value={editingStatus.color_bg} onChange={e => setEditingStatus({ ...editingStatus, color_bg: e.target.value })}
-                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono outline-none focus:border-emerald-500" />
-                      </div>
-                    </div>
-                    <div className="space-y-1.5">
-                      <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu chữ (HEX)</label>
-                      <div className="flex gap-2">
-                        <input type="color" value={editingStatus.color_text} onChange={e => setEditingStatus({ ...editingStatus, color_text: e.target.value })}
-                          className="w-10 h-10 p-0 border-none bg-transparent cursor-pointer" />
-                        <input value={editingStatus.color_text} onChange={e => setEditingStatus({ ...editingStatus, color_text: e.target.value })}
-                          className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm font-mono outline-none focus:border-emerald-500" />
-                      </div>
-                    </div>
-                  </div>
+                  
                   <div className="space-y-1.5">
                     <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Thứ tự sắp xếp</label>
                     <input type="number" value={editingStatus.sort_order} onChange={e => setEditingStatus({ ...editingStatus, sort_order: parseInt(e.target.value) })}
@@ -823,6 +1191,63 @@ function ConfigView({
             </div>
           )}
         </div>
+
+        {/* Recruiters Management */}
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-6">
+          <div className="flex items-center justify-between">
+            <h3 className="text-sm font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+              <Users size={16} className="text-purple-500" /> Nhân sự P.TD nhận
+            </h3>
+            <button onClick={() => setEditingRecruiter({ name: '' })}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-purple-50 text-purple-600 rounded-lg text-xs font-bold hover:bg-purple-600 hover:text-white transition-all">
+              <Plus size={14} /> Thêm nhân sự
+            </button>
+          </div>
+
+          <div className="space-y-3">
+            {recruiters.map(r => (
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-purple-200 transition-all">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 bg-purple-600 rounded-full" />
+                    <span className="font-bold text-slate-800">{r.name}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                  <button onClick={() => setEditingRecruiter(r)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit2 size={14} /></button>
+                  <button onClick={() => deleteRecruiter(r.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>
+                </div>
+              </div>
+            ))}
+            {recruiters.length === 0 && (
+              <div className="py-10 text-center border-2 border-dashed border-slate-100 rounded-xl">
+                <p className="text-xs font-bold text-slate-300 uppercase tracking-widest">Chưa có nhân sự P.TD</p>
+              </div>
+            )}
+          </div>
+
+          {editingRecruiter && (
+            <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+              <form onSubmit={handleSaveRecruiter} className="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+                <div className="bg-purple-600 px-6 py-4 flex items-center justify-between">
+                  <h3 className="text-white font-black text-base uppercase tracking-tight">{editingRecruiter.id ? 'Sửa nhân sự' : 'Thêm nhân sự mới'}</h3>
+                  <button type="button" onClick={() => setEditingRecruiter(null)} className="text-white/60 hover:text-white"><X size={18} /></button>
+                </div>
+                <div className="p-6 space-y-4">
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Họ và tên</label>
+                    <input required value={editingRecruiter.name} onChange={e => setEditingRecruiter({ ...editingRecruiter, name: e.target.value })}
+                      className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-purple-500" />
+                  </div>
+                </div>
+                <div className="px-6 py-4 bg-slate-50 flex justify-end gap-3">
+                  <button type="button" onClick={() => setEditingRecruiter(null)} className="px-4 py-2 text-sm font-bold text-slate-600">Hủy</button>
+                  <button type="submit" className="px-6 py-2 bg-purple-600 text-white rounded-xl text-sm font-black shadow-lg">Lưu</button>
+                </div>
+              </form>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -834,12 +1259,16 @@ export default function App() {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [groups, setGroups] = useState<Group[]>([]);
   const [statuses, setStatuses] = useState<RecruitmentStatus[]>([]);
+  const [referrers, setReferrers] = useState<Referrer[]>([]);
+  const [recruiters, setRecruiters] = useState<Recruiter[]>([]);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<Toast | null>(null);
   const [search, setSearch] = useState('');
   const [filterGroup, setFilterGroup] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [showFilters, setShowFilters] = useState(false);
+  const [filterReferrer, setFilterReferrer] = useState('');
+  const [filterRecruiter, setFilterRecruiter] = useState('');
+  const [showFilters, setShowFilters] = useState(true);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; candidate: Partial<Candidate> } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -897,6 +1326,31 @@ export default function App() {
       if (statusError) throw statusError;
       setStatuses(statusData || []);
 
+      // Fetch referrers
+      const { data: refData, error: refError } = await sb
+        .from('settings_referrers')
+        .select('*')
+        .order('name', { ascending: true });
+      if (refError) {
+        // Nếu bảng chưa tồn tại, không crash app
+        console.warn('Bảng settings_referrers chưa tồn tại');
+        setReferrers([]);
+      } else {
+        setReferrers(refData || []);
+      }
+
+      // Fetch recruiters
+      const { data: recData, error: recError } = await sb
+        .from('settings_recruiters')
+        .select('*')
+        .order('name', { ascending: true });
+      if (recError) {
+        console.warn('Bảng settings_recruiters chưa tồn tại');
+        setRecruiters([]);
+      } else {
+        setRecruiters(recData || []);
+      }
+
       setIsConnected(true);
     } catch (e: any) {
       showToast(`Lỗi kết nối Supabase: ${e?.message || 'Không xác định'}`, 'error');
@@ -926,6 +1380,12 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_statuses' }, () => {
         loadData();
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_referrers' }, () => {
+        loadData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'settings_recruiters' }, () => {
+        loadData();
+      })
       .subscribe();
 
     return () => { sb?.removeChannel(channel); };
@@ -946,22 +1406,57 @@ export default function App() {
   };
 
   // ── CRUD ──
-  const handleSave = async (data: Partial<Candidate>) => {
+  const handleSave = async (data: Partial<Candidate> | Partial<Candidate>[]) => {
     if (!sb) { showToast('Chưa kết nối Supabase', 'error'); return; }
-    if (!data.full_name?.trim()) { showToast('Vui lòng nhập tên ứng viên', 'error'); return; }
+    
+    const dataArray = Array.isArray(data) ? data : [data];
+    if (dataArray.length === 0) return;
+
+    // Validation
+    if (!Array.isArray(data)) {
+      // Single edit/add
+      const single = data as Partial<Candidate>;
+      if (!single.group_type) { showToast('Vui lòng chọn nhóm', 'error'); return; }
+      if (!single.full_name?.trim()) { showToast('Vui lòng nhập tên ứng viên', 'error'); return; }
+      if (!single.phone?.trim()) { showToast('Vui lòng nhập số điện thoại', 'error'); return; }
+    } else {
+      // Bulk add mode
+      const rowsToSave = dataArray.filter(r => r.full_name?.trim() || r.phone?.trim() || r.group_type);
+      if (rowsToSave.length === 0) {
+        showToast('Vui lòng nhập thông tin ứng viên', 'error');
+        return;
+      }
+      for (const row of rowsToSave) {
+        if (!row.group_type) { showToast('Vui lòng chọn nhóm mặc định', 'error'); return; }
+        if (!row.full_name?.trim()) { showToast('Vui lòng nhập tên ứng viên', 'error'); return; }
+        if (!row.phone?.trim()) { showToast(`Vui lòng nhập SĐT cho ứng viên ${row.full_name || '(Chưa có tên)'}`, 'error'); return; }
+      }
+    }
 
     showToast('Đang lưu...', 'loading');
     try {
       if (modal?.type === 'add') {
-        const { id, ...rest } = data as Candidate;
-        const { error } = await sb.from('candidates').insert([{ ...rest }]);
+        const toInsert = dataArray
+          .filter(row => row.full_name?.trim())
+          .map(row => {
+            const { id, sttInGroup, ...rest } = row as any;
+            return rest;
+          });
+
+        if (toInsert.length === 0) {
+          showToast('Vui lòng nhập ít nhất một ứng viên có tên', 'error');
+          return;
+        }
+
+        const { error } = await sb.from('candidates').insert(toInsert);
         if (error) throw error;
-        showToast(`✅ Đã thêm: ${data.full_name}`, 'success');
+        showToast(`✅ Đã thêm ${toInsert.length} ứng viên`, 'success');
       } else {
-        const { id, created_at, ...rest } = data as Candidate;
+        const singleData = data as any;
+        const { id, created_at, sttInGroup, ...rest } = singleData;
         const { error } = await sb.from('candidates').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id!);
         if (error) throw error;
-        showToast(`✅ Đã cập nhật: ${data.full_name}`, 'success');
+        showToast(`✅ Đã cập nhật: ${singleData.full_name}`, 'success');
       }
       setModal(null);
       await loadData();
@@ -988,6 +1483,8 @@ export default function App() {
   const filtered = candidates.filter(c => {
     if (filterGroup && c.group_type !== filterGroup) return false;
     if (filterStatus && c.recruitment_status !== filterStatus) return false;
+    if (filterReferrer && c.referrer !== filterReferrer) return false;
+    if (filterRecruiter && c.recruiter !== filterRecruiter) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -1002,21 +1499,27 @@ export default function App() {
     return true;
   });
 
-  const grouped = {
-    I: filtered.filter(c => c.group_type === 'I'),
-    II: filtered.filter(c => c.group_type === 'II'),
-  };
-
   const totalPages = Math.ceil(filtered.length / PER_PAGE);
-  const paged = filtered.slice((page - 1) * PER_PAGE, page * PER_PAGE);
+  
+  // Tính toán STT trong nhóm cho từng ứng viên
+  const groupCounts: Record<string, number> = {};
+  const candidatesWithGroupSTT = filtered.map(c => {
+    groupCounts[c.group_type] = (groupCounts[c.group_type] || 0) + 1;
+    return { ...c, sttInGroup: groupCounts[c.group_type] };
+  });
+
+  const paged = candidatesWithGroupSTT.slice((page - 1) * PER_PAGE, page * PER_PAGE);
 
   // ── Stats ──
+  const statusCounts: Record<string, number> = {};
+  candidates.forEach(c => {
+    const s = c.recruitment_status || 'Chưa xác định';
+    statusCounts[s] = (statusCounts[s] || 0) + 1;
+  });
+
   const stats = {
     total: candidates.length,
-    byGroup: groups.reduce((acc, g) => {
-      acc[g.code] = candidates.filter(c => c.group_type === g.code).length;
-      return acc;
-    }, {} as Record<string, number>),
+    statusCounts,
     working: candidates.filter(c => c.recruitment_status?.includes('Đang đi làm')).length,
     contacted: candidates.filter(c => c.recruitment_status === 'Đang liên hệ').length,
     notContacted: candidates.filter(c => c.recruitment_status === 'P.TD chưa liên hệ').length,
@@ -1024,13 +1527,16 @@ export default function App() {
 
   // Export to CSV
   const exportCSV = () => {
-    const headers = ['STT', 'Nhóm', 'Tên ứng viên', 'Năm sinh', 'SĐT', 'KN/Năng lực', 'Vị trí ứng tuyển', 'Địa điểm', 'Ngày GT', 'Người GT', 'PTD nhận', 'Tình trạng', 'Ghi chú'];
-    const rows = filtered.map((c, i) => [
-      i + 1, c.group_type === 'I' ? 'Nhóm I' : 'Nhóm II',
-      c.full_name, c.birth_year, c.phone, c.experience,
-      c.position, c.desired_location, c.referral_date, c.referrer,
-      c.ptd_received ? 'Đã nhận' : 'Chưa', c.recruitment_status, c.notes
-    ]);
+    const headers = ['STT', 'Nhóm', 'Tên ứng viên', 'Năm sinh', 'SĐT', 'Kinh nghiệm/năng lực', 'Vị trí ứng tuyển', 'Địa điểm mong muốn làm việc', 'Ngày giới thiệu', 'Người giới thiệu', 'PTD nhận HS giới thiệu', 'Tình trạng', 'Ghi chú'];
+    const rows = filtered.map((c, i) => {
+      const groupName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
+      return [
+        (c as any).sttInGroup || (i + 1), groupName,
+        c.full_name, c.birth_year, c.phone, c.experience,
+        c.position, c.desired_location, c.referral_date, c.referrer,
+        c.ptd_received ? 'Đã nhận' : 'Chưa', c.recruitment_status, c.notes
+      ];
+    });
     const csv = [headers, ...rows].map(r => r.map(v => `"${(v || '').toString().replace(/"/g, '""')}"`).join(',')).join('\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -1125,6 +1631,8 @@ export default function App() {
             sb={sb}
             groups={groups}
             statuses={statuses}
+            referrers={referrers}
+            recruiters={recruiters}
             showToast={showToast}
             onUpdated={loadData}
           />
@@ -1199,35 +1707,60 @@ export default function App() {
                   <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full normal-case">{filtered.length}/{candidates.length}</span>
                 </h2>
               </div>
+
+              {/* Status Summary */}
+              <div className="hidden lg:flex items-center gap-4 px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl overflow-x-auto max-w-[50%] no-scrollbar">
+                {statuses.map(s => {
+                  const count = stats.statusCounts[s.name] || 0;
+                  if (count === 0) return null;
+                  return (
+                    <div key={s.id} className="flex items-center gap-1.5 whitespace-nowrap">
+                      <span className="text-[12px] font-bold text-slate-50 uppercase tracking-wider px-2 py-0.5 rounded shadow-sm" style={{ backgroundColor: getAutoBgColor(s.name), color: '#000' }}>
+                        {s.name}
+                      </span>
+                      <span className="text-[12px] font-black text-blue-700">{count}</span>
+                    </div>
+                  );
+                })}
+                {stats.statusCounts['Chưa xác định'] > 0 && (
+                  <div className="flex items-center gap-1.5 whitespace-nowrap">
+                    <span className="text-[12px] font-bold text-slate-50 uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 text-slate-600 shadow-sm">
+                      Chưa xác định
+                    </span>
+                    <span className="text-[12px] font-black text-blue-700">{stats.statusCounts['Chưa xác định']}</span>
+                  </div>
+                )}
+              </div>
+
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Search */}
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                     placeholder="Tìm kiếm..."
-                    className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-sm font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-48" />
+                    className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-48 shadow-sm" />
                   {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X size={13} /></button>}
                 </div>
                 {/* Filter toggle */}
                 <button onClick={() => setShowFilters(p => !p)}
-                  className={cn('flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border',
+                  className={cn('flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-bold transition-all border',
                     showFilters ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400')}>
                   <Filter size={14} /> Bộ lọc
-                  {(filterGroup || filterStatus) && <span className="bg-orange-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">!</span>}
+                  {(filterGroup || filterStatus || filterReferrer || filterRecruiter) && <span className="bg-orange-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">!</span>}
                 </button>
                 {/* Refresh */}
                 <button onClick={loadData} disabled={loading}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:border-blue-400 transition-all disabled:opacity-50">
+                  className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[12px] font-bold text-slate-600 hover:border-blue-400 transition-all disabled:opacity-50">
                   <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Làm mới
                 </button>
                 {/* Export */}
                 <button onClick={exportCSV}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold transition-all shadow-sm">
+                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
                   <FileDown size={13} /> Xuất CSV
                 </button>
                 {/* Add */}
                 <button onClick={() => setModal({ type: 'add', candidate: { ...EMPTY_CANDIDATE } })}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-sm font-black transition-all shadow-lg shadow-orange-500/30">
+                  className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-[12px] font-black transition-all shadow-lg shadow-orange-500/30">
                   <Plus size={14} /> Thêm ứng viên
                 </button>
               </div>
@@ -1235,27 +1768,43 @@ export default function App() {
 
             {/* Filters */}
             {showFilters && (
-              <div className="bg-[#f5f2e1] border border-slate-300/50 rounded-2xl px-5 py-4 flex flex-wrap gap-4 items-end shadow-sm">
+              <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-6 py-4 flex flex-wrap gap-6 items-end shadow-sm font-roboto">
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Nhóm</label>
+                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Nhóm</label>
                   <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
-                    className="border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 bg-white">
+                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[180px] shadow-sm cursor-pointer hover:border-orange-300">
                     <option value="">Tất cả</option>
-                    {groups.map(g => <option key={g.id} value={g.code}>{g.code} – {g.name}</option>)}
+                    {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-slate-600 uppercase tracking-widest">Tình trạng</label>
+                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Tình trạng</label>
                   <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-                    className="border border-slate-200 rounded-xl px-3 py-2 text-sm font-medium text-slate-700 outline-none focus:border-blue-400 bg-white">
+                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[220px] shadow-sm cursor-pointer hover:border-orange-300">
                     <option value="">Tất cả tình trạng</option>
                     {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                   </select>
                 </div>
-                {(filterGroup || filterStatus) && (
-                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setPage(1); }}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-red-50 text-red-500 border border-red-200 rounded-xl text-xs font-black hover:bg-red-100 transition-all">
-                    <RotateCw size={11} /> Xóa lọc
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Người giới thiệu</label>
+                  <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[200px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả người giới thiệu</option>
+                    {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">NS P.TD Nhận</label>
+                  <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[200px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả nhân sự</option>
+                    {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
+                {(filterGroup || filterStatus || filterReferrer || filterRecruiter) && (
+                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setPage(1); }}
+                    className="flex items-center gap-2 px-4 py-2 bg-white text-red-500 border border-red-200 rounded-xl text-[12px] font-bold hover:bg-red-50 transition-all shadow-sm active:scale-95">
+                    <RotateCw size={12} /> Xóa lọc
                   </button>
                 )}
               </div>
@@ -1286,67 +1835,89 @@ export default function App() {
             {/* ── Table ── */}
             {!loading && sb && (
               <>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-400 overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="data-table">
                       <thead>
                         <tr>
                           <th style={{ width: 45 }}>STT</th>
-                          <th style={{ width: 80 }}>Nhóm</th>
-                          <th style={{ minWidth: 140 }}>Tên ứng viên</th>
-                          <th style={{ width: 65 }}>Năm sinh</th>
+                          <th style={{ minWidth: 160 }}>Tên ứng viên</th>
+                          <th style={{ width: 70 }}>Năm sinh</th>
                           <th style={{ width: 110 }}>SĐT</th>
-                          <th style={{ minWidth: 130 }}>KN/Năng lực</th>
-                          <th style={{ minWidth: 140 }}>Vị trí ứng tuyển</th>
-                          <th style={{ minWidth: 140 }}>Địa điểm mong muốn</th>
-                          <th style={{ width: 100 }}>Ngày GT</th>
-                          <th style={{ minWidth: 120 }}>Người GT</th>
-                          <th style={{ width: 80 }}>PTD nhận HS</th>
-                          <th style={{ minWidth: 160 }}>Tình trạng tuyển dụng</th>
+                          <th style={{ minWidth: 150 }}>Kinh nghiệm/năng lực</th>
+                          <th style={{ minWidth: 150 }}>Vị trí ứng tuyển</th>
+                          <th style={{ minWidth: 180 }}>Địa điểm mong muốn làm việc</th>
+                          <th style={{ width: 100 }}>Ngày giới thiệu</th>
+                          <th style={{ minWidth: 140 }}>Người giới thiệu</th>
+                          <th style={{ minWidth: 140 }}>NS P.TD nhận</th>
+                          <th style={{ minWidth: 160 }}>Tình trạng</th>
                           <th style={{ minWidth: 120 }}>Ghi chú</th>
                           <th style={{ width: 80 }}>Thao tác</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {paged.map((c, i) => {
-                          const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
-                          const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
-                          return (
-                            <tr key={c.id} style={rowStyle}>
-                              <td className="text-center font-bold text-blue-700 text-xs">{c.stt || ((page - 1) * PER_PAGE + i + 1)}</td>
-                              <td className="text-center"><span className="bg-slate-100 text-slate-600 text-[10px] font-black px-1.5 py-0.5 rounded uppercase">{c.group_type}</span></td>
-                              <td className="font-semibold">{c.full_name}</td>
-                              <td className="text-center">{c.birth_year}</td>
-                              <td className="text-center">{c.phone}</td>
-                              <td>{c.experience}</td>
-                              <td>{c.position}</td>
-                              <td>{c.desired_location}</td>
-                              <td className="text-center text-xs">{c.referral_date}</td>
-                              <td>{c.referrer}</td>
-                              <td className="text-center">
-                                {c.ptd_received
-                                  ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-bold bg-emerald-100 px-2 py-0.5 rounded-full">✓ Nhận</span>
-                                  : <span className="text-slate-300 text-xs">–</span>}
-                              </td>
-                              <td>
-                                {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
-                              </td>
-                              <td className="text-xs text-slate-500 italic">{c.notes}</td>
-                              <td>
-                                <div className="flex items-center justify-center gap-1">
-                                  <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
-                                    className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
-                                    <Edit2 size={12} />
-                                  </button>
-                                  <button onClick={() => setDeleteId(c.id)}
-                                    className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
-                                    <Trash2 size={12} />
-                                  </button>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {(() => {
+                          let lastGroup = '';
+                          return paged.map((c, i) => {
+                            const showHeader = c.group_type !== lastGroup;
+                            lastGroup = c.group_type;
+                            const group = groups.find(g => g.code === c.group_type);
+                            const groupName = group?.name || 'Chưa phân nhóm';
+                            const groupIndex = groups.findIndex(g => g.code === c.group_type) + 1;
+                            
+                            const groupColors = [
+                              { bg: 'bg-orange-100', border: 'border-orange-300', text: 'text-orange-900' },
+                              { bg: 'bg-blue-100', border: 'border-blue-300', text: 'text-blue-900' },
+                              { bg: 'bg-emerald-100', border: 'border-emerald-300', text: 'text-emerald-900' },
+                              { bg: 'bg-purple-100', border: 'border-purple-300', text: 'text-purple-900' },
+                            ];
+                            const color = groupColors[(groupIndex - 1) % groupColors.length] || groupColors[0];
+                            
+                            const hl = HIGHLIGHT_COLORS.find(h => h.key === c.highlight_color);
+                            const rowStyle = hl?.key ? { background: hl.bg, color: hl.text } : {};
+
+                            return (
+                              <React.Fragment key={c.id}>
+                                {showHeader && (
+                                  <tr className={cn("border-y", color.bg, color.border)}>
+                                    <td className="text-center font-black text-slate-700">{toRoman(groupIndex)}</td>
+                                    <td colSpan={12} className={cn("py-2.5 px-4 font-black text-sm uppercase tracking-tight", color.text)}>
+                                      {groupName}
+                                    </td>
+                                  </tr>
+                                )}
+                                <tr style={rowStyle}>
+                                  <td className="text-center font-bold text-blue-700 text-xs">{(c as any).sttInGroup}</td>
+                                  <td className="font-semibold">{c.full_name}</td>
+                                  <td className="text-center">{c.birth_year}</td>
+                                  <td className="text-center">{c.phone}</td>
+                                  <td>{c.experience}</td>
+                                  <td>{c.position}</td>
+                                  <td>{c.desired_location}</td>
+                                  <td className="text-center text-xs">{c.referral_date}</td>
+                                  <td>{c.referrer}</td>
+                                  <td className="text-xs font-semibold text-slate-700">{c.recruiter}</td>
+                                  <td>
+                                    {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
+                                  </td>
+                                  <td className="text-xs text-slate-500 italic">{c.notes}</td>
+                                  <td>
+                                    <div className="flex items-center justify-center gap-1">
+                                      <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
+                                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
+                                        <Edit2 size={12} />
+                                      </button>
+                                      <button onClick={() => setDeleteId(c.id)}
+                                        className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              </React.Fragment>
+                            );
+                          });
+                        })()}
                       </tbody>
                     </table>
 
@@ -1394,7 +1965,7 @@ export default function App() {
 
       {/* Modals */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onSave={handleSaveSettings} />}
-      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} />}
+      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} />}
       {deleteId && <ConfirmDeleteModal name={deleteTarget?.full_name || ''} onConfirm={handleDelete} onClose={() => setDeleteId(null)} />}
 
       {/* Toast */}
