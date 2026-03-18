@@ -1867,7 +1867,7 @@ export default function App() {
       summarySheet.mergeCells('A2:C2');
       const dateCell = summarySheet.getCell('A2');
       dateCell.value = `Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}  |  Tổng ứng viên: ${sorted.length}`;
-      dateCell.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      dateCell.font = { italic: true, size: 10, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       summarySheet.getRow(2).height = 22;
 
@@ -1899,7 +1899,7 @@ export default function App() {
         if (count === 0) return;
         totalCount += count;
         const row = summarySheet.getRow(5 + idx);
-        row.height = 24;
+        row.height = 28;
 
         // STT
         const sttCell = row.getCell(1);
@@ -1910,6 +1910,7 @@ export default function App() {
         const nameCell = row.getCell(2);
         nameCell.value = s.name;
         nameCell.font = { bold: true, size: 11 };
+        nameCell.alignment = { horizontal: 'left', vertical: 'middle' };
 
         // Màu nền theo color_bg từ DB
         const rawColor = s.color_bg || getAutoBgColor(s.name);
