@@ -721,26 +721,34 @@ function ConfirmDeleteModal({ name, onConfirm, onClose }: {
 // Hàm lấy màu nền tự động dựa trên nội dung (phù hợp với nội dung)
 const getAutoBgColor = (name: string) => {
   const n = name.toLowerCase();
-  
-  // Specific matches based on user request and common statuses
-  if (n.includes('đi làm') || n.includes('thành công') || n.includes('nhận')) return '#bbf7d0'; // Green
-  if (n.includes('hợp đồng') || n.includes('ký')) return '#a5f3fc'; // Cyan
-  if (n.includes('phỏng vấn') || n.includes('test')) return '#fef08a'; // Yellow
-  if (n.includes('thủ tục') || n.includes('pv đạt')) return '#e9d5ff'; // Purple
-  if (n.includes('chờ') || n.includes('kết quả')) return '#bfdbfe'; // Blue
-  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Blue
-  if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại')) return '#fecaca'; // Red
-  
-  // Specific requests from Image 1
-  if (n.includes('chuyển hồ sơ uv sang tt đào tạo nghề')) return '#ffedd5'; // Orange nhạt
-  if (n.includes('đã pv, chưa có kq')) return '#dbeafe'; // Blue nhạt (thay cho xanh lá nhạt để tránh trùng lặp với Thành công)
-  
-  // Dynamic fallback for uniqueness (using a simple color palette rotation)
+
+  // Specific keyword matches — mỗi trạng thái 1 màu riêng biệt, sặc sỡ
+  if (n.includes('đi làm') || n.includes('nhận việc')) return '#4ade80';         // Xanh lá đậm
+  if (n.includes('thành công') || n.includes('hợp đồng') || n.includes('ký hđ')) return '#22d3ee'; // Cyan đậm
+  if (n.includes('chuyển hồ sơ') || n.includes('đào tạo nghề')) return '#fb923c'; // Cam đậm
+  if (n.includes('chờ pv') || n.includes('chờ/test') || n.includes('test tay') || n.includes('chờ')) return '#facc15'; // Vàng đậm
+  if (n.includes('phỏng vấn đạt') || n.includes('pv đạt') || n.includes('đạt pv')) return '#a78bfa'; // Tím đậm
+  if (n.includes('thủ tục') || n.includes('đang làm thủ tục')) return '#f472b6';  // Hồng đậm
+  if (n.includes('chưa có kq') || n.includes('chờ kq') || n.includes('kết quả')) return '#60a5fa'; // Xanh dương đậm
+  if (n.includes('liên hệ')) return '#93c5fd';                                    // Xanh dương nhạt hơn
+  if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại') || n.includes('không đạt')) return '#f87171'; // Đỏ đậm
+
+  // Fallback palette — màu sặc sỡ, khác hẳn nhau, không bị nhạt
   const palette = [
-    '#f1f5f9', '#fef2f2', '#fff7ed', '#fefce8', '#f0fdf4', 
-    '#ecfeff', '#f5f3ff', '#fdf2f8', '#fff1f2', '#f8fafc'
+    '#34d399', // emerald
+    '#f59e0b', // amber
+    '#818cf8', // indigo
+    '#f43f5e', // rose
+    '#06b6d4', // cyan
+    '#84cc16', // lime
+    '#e879f9', // fuchsia
+    '#fb7185', // pink
+    '#2dd4bf', // teal
+    '#a3e635', // lime-400
+    '#c084fc', // purple-400
+    '#fbbf24', // yellow-400
   ];
-  
+
   let hash = 0;
   for (let i = 0; i < name.length; i++) {
     hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -1116,7 +1124,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {groups.map(g => (
-              <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-blue-200 transition-all">
+              <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-blue-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-blue-600 rounded-full" />
@@ -1168,7 +1176,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {referrers.map(r => (
-              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-orange-200 transition-all">
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-orange-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-orange-600 rounded-full" />
@@ -1225,7 +1233,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {statuses.map(s => (
-              <div key={s.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-emerald-200 transition-all">
+              <div key={s.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-emerald-200 transition-all">
                 <div className="flex items-center gap-3">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black bg-white border border-slate-200 text-slate-400">
                     {s.sort_order}
@@ -1287,7 +1295,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {recruiters.map(r => (
-              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100 hover:border-purple-200 transition-all">
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-purple-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-purple-600 rounded-full" />
@@ -1898,46 +1906,18 @@ export default function App() {
 
         {/* ── List View ── */}
         {activeView === 'list' && (
-          <div className="p-4 md:p-6 space-y-6">
-            {/* Row 1: Title */}
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+          <div className="p-4 md:p-6 space-y-3">
+            {/* Row 1: Title + Filters + Toolbar combined */}
+            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-3 items-center justify-between shadow-sm font-roboto">
+              {/* Left: Title */}
+              <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 shrink-0">
                 <div className="w-1 h-5 bg-orange-500 rounded-full" />
                 Danh sách ứng viên
                 <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
               </h2>
-            </div>
 
-            {/* Row 2: Status Summary Bar */}
-            <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 shadow-sm">
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
-                {statuses.map(s => {
-                  const count = statusCounts[s.name] || 0;
-                  if (count === 0) return null;
-                  return (
-                    <div key={s.id} className="flex items-center whitespace-nowrap">
-                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: getAutoBgColor(s.name) }}>
-                        {s.name}
-                        <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{count}</span>
-                      </span>
-                    </div>
-                  );
-                })}
-                {statusCounts['Chưa xác định'] > 0 && (
-                  <div className="flex items-center whitespace-nowrap">
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 shadow-sm flex items-center gap-2 border border-black/5">
-                      Chưa xác định
-                      <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
-                    </span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Row 3: Combined Filters + Toolbar in Yellow Box */}
-            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-4 items-end justify-between shadow-sm font-roboto mt-2">
-              {/* Left: Dropdown Filters */}
-              <div className="flex flex-wrap gap-3 items-end">
+              {/* Middle: Dropdown Filters */}
+              <div className="flex flex-wrap gap-2 items-end">
                 <div className="space-y-1">
                   <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Nhóm</label>
                   <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
@@ -1973,7 +1953,7 @@ export default function App() {
               </div>
 
               {/* Right: Toolbar Buttons */}
-              <div className="flex items-center gap-2 flex-wrap pb-0.5">
+              <div className="flex items-center gap-2 flex-wrap">
                 {/* Search */}
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -2004,6 +1984,32 @@ export default function App() {
                   className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-[12px] font-black transition-all shadow-lg shadow-orange-500/30">
                   <Plus size={14} /> Thêm ứng viên
                 </button>
+              </div>
+            </div>
+
+            {/* Row 2: Status Summary Bar */}
+            <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                {statuses.map(s => {
+                  const count = statusCounts[s.name] || 0;
+                  if (count === 0) return null;
+                  return (
+                    <div key={s.id} className="flex items-center whitespace-nowrap">
+                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: getAutoBgColor(s.name) }}>
+                        {s.name}
+                        <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{count}</span>
+                      </span>
+                    </div>
+                  );
+                })}
+                {statusCounts['Chưa xác định'] > 0 && (
+                  <div className="flex items-center whitespace-nowrap">
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 shadow-sm flex items-center gap-2 border border-black/5">
+                      Chưa xác định
+                      <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2100,8 +2106,8 @@ export default function App() {
                                   <td>{c.desired_location}</td>
                                   <td className="text-center text-xs">{c.referral_date}</td>
                                   <td>{c.referrer}</td>
-                                  <td className="text-xs font-semibold text-slate-700">{c.recruiter}</td>
-                                  <td>
+                                  <td className="text-xs font-bold text-slate-700 text-center">{c.recruiter}</td>
+                                  <td className="text-center">
                                     {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
                                   </td>
                                   <td className="text-xs text-slate-500 italic">{c.notes}</td>
