@@ -134,3 +134,67 @@ ON CONFLICT (name) DO NOTHING;
 -- ============================================================
 SELECT COUNT(*) as total_candidates FROM public.candidates;
 SELECT group_type, COUNT(*) as count FROM public.candidates GROUP BY group_type;
+
+-- ============================================================
+-- BẢNG TÀI LIỆU ĐÍNH KÈM (documents)
+-- Chạy phần này để bật tính năng "Tài liệu đính kèm"
+-- ============================================================
+
+-- 1. Tạo bảng documents
+CREATE TABLE IF NOT EXISTS public.documents (
+  id           UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  name         TEXT NOT NULL,
+  file_name    TEXT NOT NULL,
+  file_type    TEXT NOT NULL,
+  file_size    BIGINT,
+  storage_path TEXT NOT NULL,
+  public_url   TEXT,
+  created_at   TIMESTAMPTZ DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 2. Trigger auto-update updated_at
+DROP TRIGGER IF EXISTS trigger_documents_updated_at ON public.documents;
+CREATE TRIGGER trigger_documents_updated_at
+  BEFORE UPDATE ON public.documents
+  FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
+
+-- 3. RLS Policy
+ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all for anon" ON public.documents FOR ALL TO anon USING (true) WITH CHECK (true);
+
+-- 4. Realtime
+ALTER PUBLICATION supabase_realtime ADD TABLE public.documents;
+
+-- ============================================================
+-- STORAGE BUCKET (chạy trong Supabase Dashboard → Storage)
+-- Tạo bucket tên "documents" với cài đặt:
+--   - Public bucket: BẬT (để đọc file không cần xác thực)
+--   - File size limit: 50MB (hoặc tùy nhu cầu)
+--   - Allowed MIME types: application/pdf, application/msword,
+--     application/vnd.openxmlformats-officedocument.wordprocessingml.document
+--
+-- HOẶC chạy SQL dưới đây trong SQL Editor:
+-- ============================================================
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'documents',
+  'documents',
+  true,
+  52428800,  -- 50MB
+  ARRAY['application/pdf','application/msword','application/vnd.openxmlformats-officedocument.wordprocessingml.document']
+) ON CONFLICT (id) DO NOTHING;
+
+-- Storage RLS Policies
+CREATE POLICY "Allow public read on documents bucket"
+  ON storage.objects FOR SELECT TO anon
+  USING (bucket_id = 'documents');
+
+CREATE POLICY "Allow anon upload to documents bucket"
+  ON storage.objects FOR INSERT TO anon
+  WITH CHECK (bucket_id = 'documents');
+
+CREATE POLICY "Allow anon delete from documents bucket"
+  ON storage.objects FOR DELETE TO anon
+  USING (bucket_id = 'documents');

@@ -52,10 +52,33 @@ npm run build
 - ✅ **Tìm kiếm** nhanh theo tên, SĐT, vị trí, người giới thiệu
 - ✅ **Bộ lọc** theo nhóm và tình trạng tuyển dụng
 - ✅ **Màu highlight** dòng theo tình trạng
-- ✅ **Xuất CSV** danh sách đang lọc
+- ✅ **Xuất Excel** danh sách đang lọc
 - ✅ **Realtime sync** — nhiều người dùng cùng lúc tự cập nhật
 - ✅ **Dashboard thống kê** tổng quan
 - ✅ **Responsive** — dùng được trên mobile
+- ✅ **Tài liệu đính kèm** — tải lên, xem, đổi tên và xóa file PDF/Word
+
+## 📁 Tính năng Tài liệu đính kèm
+
+Để bật tính năng này, bạn cần thực hiện thêm 2 bước trong Supabase:
+
+### Bước 1: Tạo bảng `documents`
+Vào **Supabase Dashboard → SQL Editor**, chạy phần SQL **"BẢNG TÀI LIỆU ĐÍNH KÈM"** trong file `SUPABASE_SQL.sql`.
+
+### Bước 2: Tạo Storage Bucket
+Vào **Supabase Dashboard → Storage → New Bucket**:
+- **Name**: `documents`
+- **Public bucket**: ✅ BẬT
+- **File size limit**: 50MB
+
+Hoặc chạy phần SQL **"STORAGE BUCKET"** trong file `SUPABASE_SQL.sql`.
+
+### Tính năng:
+- 📤 **Tải lên** file PDF và Word (kéo thả hoặc chọn file)
+- 👁️ **Xem trực tiếp** file PDF trong trình duyệt
+- 👁️ **Xem file Word** qua Google Docs Viewer
+- ✏️ **Đổi tên** file sau khi tải lên
+- 🗑️ **Xóa** file (xóa cả trên Storage)
 
 ## 🗃️ Cấu trúc bảng
 

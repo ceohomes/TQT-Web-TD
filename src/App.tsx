@@ -4,11 +4,12 @@ import {
   Download, RotateCw, CheckCircle2, AlertCircle, Loader2,
   ChevronDown, Users, Menu, Database, FileDown, RefreshCw,
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
+  Paperclip, FileText, File, Upload, Pencil, ExternalLink,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import { supabase as supabaseInit, reinitSupabase } from './supabase';
-import type { Candidate, Group, RecruitmentStatus, Referrer, Recruiter, Toast } from './types';
+import type { Candidate, Group, RecruitmentStatus, Referrer, Recruiter, Toast, Document as DocumentType } from './types';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -1384,6 +1385,324 @@ function ConfigView({
   );
 }
 
+// ─── Documents View ───────────────────────────────────────────────────────────
+
+function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> | null; showToast: (msg: string, type: Toast['type']) => void }) {
+  const [documents, setDocuments] = useState<DocumentType[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [deleteDocId, setDeleteDocId] = useState<string | null>(null);
+  const [viewerDoc, setViewerDoc] = useState<DocumentType | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const BUCKET = 'documents';
+
+  const loadDocuments = useCallback(async () => {
+    if (!sb) return;
+    setLoading(true);
+    try {
+      const { data, error } = await sb.from('documents').select('*').order('created_at', { ascending: false });
+      if (error) throw error;
+      setDocuments(data || []);
+    } catch (e: any) {
+      showToast(`Lỗi tải tài liệu: ${e?.message}`, 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [sb, showToast]);
+
+  useEffect(() => { loadDocuments(); }, [loadDocuments]);
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || !sb) return;
+    setUploading(true);
+    let successCount = 0;
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const allowedTypes = [
+        'application/pdf',
+        'application/msword',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      ];
+      if (!allowedTypes.includes(file.type)) {
+        showToast(`❌ File "${file.name}" không hợp lệ. Chỉ chấp nhận PDF và Word.`, 'error');
+        continue;
+      }
+      try {
+        const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+        const storagePath = `uploads/${safeName}`;
+        const { error: uploadError } = await sb.storage.from(BUCKET).upload(storagePath, file, { upsert: false });
+        if (uploadError) throw uploadError;
+        const { data: urlData } = sb.storage.from(BUCKET).getPublicUrl(storagePath);
+        const { error: dbError } = await sb.from('documents').insert({
+          name: file.name.replace(/\.[^.]+$/, ''),
+          file_name: file.name,
+          file_type: file.type,
+          file_size: file.size,
+          storage_path: storagePath,
+          public_url: urlData?.publicUrl || '',
+        });
+        if (dbError) throw dbError;
+        successCount++;
+      } catch (e: any) {
+        showToast(`❌ Lỗi upload "${file.name}": ${e?.message}`, 'error');
+      }
+    }
+    if (successCount > 0) {
+      showToast(`✅ Đã tải lên ${successCount} file`, 'success');
+      await loadDocuments();
+    }
+    setUploading(false);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleRename = async (doc: DocumentType) => {
+    if (!sb || !editingName.trim()) { showToast('Tên file không được để trống', 'error'); return; }
+    try {
+      const { error } = await sb.from('documents').update({ name: editingName.trim(), updated_at: new Date().toISOString() }).eq('id', doc.id);
+      if (error) throw error;
+      setDocuments(prev => prev.map(d => d.id === doc.id ? { ...d, name: editingName.trim() } : d));
+      setEditingId(null);
+      showToast('✅ Đã đổi tên file', 'success');
+    } catch (e: any) {
+      showToast(`Lỗi: ${e?.message}`, 'error');
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!sb || !deleteDocId) return;
+    const doc = documents.find(d => d.id === deleteDocId);
+    if (!doc) return;
+    try {
+      showToast('Đang xóa...', 'loading');
+      await sb.storage.from(BUCKET).remove([doc.storage_path]);
+      const { error } = await sb.from('documents').delete().eq('id', deleteDocId);
+      if (error) throw error;
+      setDocuments(prev => prev.filter(d => d.id !== deleteDocId));
+      setDeleteDocId(null);
+      showToast('✅ Đã xóa tài liệu', 'success');
+    } catch (e: any) {
+      showToast(`Lỗi: ${e?.message}`, 'error');
+    }
+  };
+
+  const getFileIcon = (type: string) => {
+    if (type === 'application/pdf') return <FileText size={20} className="text-red-500" />;
+    return <File size={20} className="text-blue-500" />;
+  };
+
+  const formatSize = (bytes?: number) => {
+    if (!bytes) return '';
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  };
+
+  const formatDate = (iso?: string) => {
+    if (!iso) return '';
+    return new Date(iso).toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  if (!sb) {
+    return (
+      <div className="p-8 text-center text-slate-500">
+        <Database size={48} className="mx-auto mb-4 text-slate-200" />
+        <p className="font-black uppercase tracking-widest text-sm">Chưa kết nối Supabase</p>
+        <p className="text-xs mt-1">Vui lòng cấu hình Supabase để sử dụng tính năng này</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      {/* Header bar */}
+      <div className="bg-white border border-slate-200 rounded-2xl px-5 py-4 flex flex-wrap gap-3 items-center justify-between shadow-sm">
+        <div className="flex items-center gap-2">
+          <div className="w-1 h-5 bg-blue-600 rounded-full" />
+          <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+            Tài liệu đính kèm
+            <span className="text-xs font-bold text-white bg-blue-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{documents.length}</span>
+          </h2>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => fileInputRef.current?.click()} disabled={uploading}
+            className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-sm shadow transition-all disabled:opacity-50">
+            {uploading ? <Loader2 size={15} className="animate-spin" /> : <Upload size={15} />}
+            {uploading ? 'Đang tải lên...' : 'Tải file lên'}
+          </button>
+          <input ref={fileInputRef} type="file" multiple accept=".pdf,.doc,.docx" className="hidden"
+            onChange={e => handleUpload(e.target.files)} />
+          <button onClick={loadDocuments} className="p-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl transition-all" title="Làm mới">
+            <RefreshCw size={15} />
+          </button>
+        </div>
+      </div>
+
+      {/* Upload hint */}
+      <div
+        className="border-2 border-dashed border-blue-200 rounded-2xl p-6 text-center bg-blue-50/50 cursor-pointer hover:border-blue-400 hover:bg-blue-50 transition-all"
+        onClick={() => fileInputRef.current?.click()}
+        onDragOver={e => e.preventDefault()}
+        onDrop={e => { e.preventDefault(); handleUpload(e.dataTransfer.files); }}
+      >
+        <Upload size={32} className="mx-auto text-blue-300 mb-2" />
+        <p className="text-sm font-bold text-blue-600">Kéo & thả file vào đây hoặc nhấn để chọn file</p>
+        <p className="text-xs text-slate-400 mt-1">Hỗ trợ: PDF (.pdf) và Word (.doc, .docx)</p>
+      </div>
+
+      {/* File list */}
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 size={36} className="animate-spin text-blue-500" />
+        </div>
+      ) : documents.length === 0 ? (
+        <div className="py-16 text-center bg-white rounded-2xl border border-slate-100 shadow-sm">
+          <Paperclip size={48} className="mx-auto text-slate-200 mb-4" />
+          <p className="font-black text-slate-400 uppercase tracking-widest text-sm">Chưa có tài liệu nào</p>
+          <p className="text-slate-400 text-xs mt-1">Tải file lên để lưu trữ tại đây</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="bg-[#1a3a6b] text-white">
+                <th className="text-left px-4 py-3 font-black text-[11px] uppercase tracking-widest w-10">STT</th>
+                <th className="text-left px-4 py-3 font-black text-[11px] uppercase tracking-widest">Tên file</th>
+                <th className="text-left px-4 py-3 font-black text-[11px] uppercase tracking-widest w-32">Loại</th>
+                <th className="text-left px-4 py-3 font-black text-[11px] uppercase tracking-widest w-24">Kích thước</th>
+                <th className="text-left px-4 py-3 font-black text-[11px] uppercase tracking-widest w-40">Ngày tải lên</th>
+                <th className="text-center px-4 py-3 font-black text-[11px] uppercase tracking-widest w-28">Thao tác</th>
+              </tr>
+            </thead>
+            <tbody>
+              {documents.map((doc, idx) => (
+                <tr key={doc.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
+                  <td className="px-4 py-3 text-center font-bold text-blue-700 text-xs">{idx + 1}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center gap-2">
+                      {getFileIcon(doc.file_type)}
+                      {editingId === doc.id ? (
+                        <div className="flex items-center gap-1 flex-1">
+                          <input
+                            autoFocus
+                            value={editingName}
+                            onChange={e => setEditingName(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') handleRename(doc); if (e.key === 'Escape') setEditingId(null); }}
+                            className="flex-1 border border-blue-400 rounded-lg px-2 py-1 text-sm outline-none font-medium"
+                          />
+                          <button onClick={() => handleRename(doc)} className="p-1 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                            <Save size={12} />
+                          </button>
+                          <button onClick={() => setEditingId(null)} className="p-1 bg-slate-200 text-slate-600 rounded-lg hover:bg-slate-300">
+                            <X size={12} />
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="font-semibold text-slate-800 truncate max-w-xs">{doc.name}</span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400 mt-0.5 ml-7">{doc.file_name}</p>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      'text-[10px] font-bold px-2 py-0.5 rounded-full uppercase',
+                      doc.file_type === 'application/pdf' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700'
+                    )}>
+                      {doc.file_type === 'application/pdf' ? 'PDF' : 'Word'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-xs text-slate-500">{formatSize(doc.file_size)}</td>
+                  <td className="px-4 py-3 text-xs text-slate-500">{formatDate(doc.created_at)}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button onClick={() => setViewerDoc(doc)}
+                        className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg hover:bg-emerald-600 hover:text-white transition-all" title="Xem file">
+                        <Eye size={12} />
+                      </button>
+                      <button onClick={() => { setEditingId(doc.id); setEditingName(doc.name); }}
+                        className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Đổi tên">
+                        <Pencil size={12} />
+                      </button>
+                      <button onClick={() => setDeleteDocId(doc.id)}
+                        className="p-1.5 bg-red-50 text-red-500 rounded-lg hover:bg-red-600 hover:text-white transition-all" title="Xóa">
+                        <Trash2 size={12} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* File Viewer Modal */}
+      {viewerDoc && (
+        <div className="modal-overlay" onClick={() => setViewerDoc(null)}>
+          <div className="modal-content bg-white rounded-2xl w-full max-w-5xl max-h-[92vh] overflow-hidden shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between bg-[#1a3a6b]">
+              <div className="flex items-center gap-3">
+                {getFileIcon(viewerDoc.file_type)}
+                <div>
+                  <p className="text-white font-black text-sm">{viewerDoc.name}</p>
+                  <p className="text-blue-300 text-[10px]">{viewerDoc.file_name} · {formatSize(viewerDoc.file_size)}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <a href={viewerDoc.public_url} target="_blank" rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all">
+                  <ExternalLink size={12} /> Mở tab mới
+                </a>
+                <button onClick={() => setViewerDoc(null)} className="p-2 text-blue-300 hover:text-white transition-colors"><X size={16} /></button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-hidden">
+              {viewerDoc.file_type === 'application/pdf' ? (
+                <iframe src={viewerDoc.public_url} className="w-full h-full min-h-[75vh]" title={viewerDoc.name} />
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 px-8 text-center h-full">
+                  <File size={64} className="text-blue-200 mb-4" />
+                  <p className="font-black text-slate-600 text-base mb-2">File Word không thể xem trực tiếp trong trình duyệt</p>
+                  <p className="text-slate-400 text-sm mb-6">Nhấn nút bên dưới để mở bằng Google Docs Viewer hoặc tải xuống</p>
+                  <div className="flex gap-3">
+                    <a href={`https://docs.google.com/viewer?url=${encodeURIComponent(viewerDoc.public_url || '')}&embedded=true`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="px-5 py-2.5 bg-blue-600 text-white rounded-xl font-bold text-sm hover:bg-blue-700 flex items-center gap-2 transition-all">
+                      <Eye size={14} /> Xem qua Google Docs
+                    </a>
+                    <a href={viewerDoc.public_url} download={viewerDoc.file_name}
+                      className="px-5 py-2.5 bg-slate-600 text-white rounded-xl font-bold text-sm hover:bg-slate-700 flex items-center gap-2 transition-all">
+                      <Download size={14} /> Tải xuống
+                    </a>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Delete Modal */}
+      {deleteDocId && (
+        <div className="modal-overlay" onClick={() => setDeleteDocId(null)}>
+          <div className="modal-content bg-white rounded-2xl w-full max-w-sm p-7 shadow-2xl text-center" onClick={e => e.stopPropagation()}>
+            <div className="w-14 h-14 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Trash2 size={24} className="text-red-500" />
+            </div>
+            <h3 className="font-black text-slate-800 text-lg mb-1">Xác nhận xóa</h3>
+            <p className="text-slate-500 text-sm mb-6">Bạn có chắc muốn xóa tài liệu <span className="font-bold text-slate-700">"{documents.find(d => d.id === deleteDocId)?.name}"</span>? Hành động này không thể hoàn tác.</p>
+            <div className="flex gap-3">
+              <button onClick={() => setDeleteDocId(null)} className="flex-1 py-2.5 border border-slate-200 rounded-xl text-slate-600 font-bold text-sm hover:bg-slate-50 transition-all">Hủy</button>
+              <button onClick={handleDelete} className="flex-1 py-2.5 bg-red-600 text-white rounded-xl font-black text-sm hover:bg-red-700 transition-all shadow-lg">Xóa</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1406,7 +1725,7 @@ export default function App() {
   const [isConnected, setIsConnected] = useState(false);
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [activeView, setActiveView] = useState<'list' | 'config'>('list');
+  const [activeView, setActiveView] = useState<'list' | 'config' | 'documents'>('list');
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // supabase client — có thể được reinit sau khi user lưu settings
@@ -2014,6 +2333,12 @@ export default function App() {
                 activeView === 'config' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
               <Settings size={16} /> Cấu hình Danh mục
             </button>
+
+            <button onClick={() => { setActiveView('documents'); setIsSidebarOpen(false); }}
+              className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all',
+                activeView === 'documents' ? 'bg-orange-500 text-white' : 'text-blue-200 hover:bg-white/10')}>
+              <Paperclip size={16} /> Tài liệu đính kèm
+            </button>
           </nav>
           <div className="mt-auto pt-6 border-t border-white/10">
             <button onClick={() => { setShowSettings(true); setIsSidebarOpen(false); }}
@@ -2061,6 +2386,11 @@ export default function App() {
             showToast={showToast}
             onUpdated={loadData}
           />
+        )}
+
+        {/* ── Documents View ── */}
+        {activeView === 'documents' && (
+          <DocumentsView sb={sb} showToast={showToast} />
         )}
 
 
