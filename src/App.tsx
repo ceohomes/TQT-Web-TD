@@ -634,9 +634,9 @@ function CandidateModal({
                         data-field="recruitment_status" data-row-idx={idx}
                         className="w-full outline-none px-2 py-1.5 rounded text-[12px] font-semibold transition-all cursor-pointer border"
                         style={row.recruitment_status ? {
-                          backgroundColor: getAutoBgColor(row.recruitment_status),
+                          backgroundColor: statuses.find(s => s.name === row.recruitment_status)?.color_bg || getAutoBgColor(row.recruitment_status),
                           color: '#000',
-                          borderColor: getAutoBgColor(row.recruitment_status),
+                          borderColor: statuses.find(s => s.name === row.recruitment_status)?.color_bg || getAutoBgColor(row.recruitment_status),
                         } : {
                           backgroundColor: 'transparent',
                           color: '#64748b',
@@ -1111,7 +1111,7 @@ function ConfigView({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         {/* Groups Management */}
         <div className="bg-white rounded-2xl p-6 shadow-sm border border-slate-100 space-y-6">
           <div className="flex items-center justify-between">
@@ -1829,7 +1829,12 @@ export default function App() {
 
           // Style status cell
           if (colNumber === 11 && c.recruitment_status) {
-            const hexColor = getAutoBgColor(c.recruitment_status).replace('#', '').toUpperCase();
+            const dbColor = statuses.find(s => s.name === c.recruitment_status)?.color_bg;
+            const rawColor = dbColor || getAutoBgColor(c.recruitment_status);
+            // Normalize hex: expand 3-digit (#abc -> #aabbcc) and strip #
+            let hex = rawColor.replace('#', '');
+            if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
+            const hexColor = hex.toUpperCase().padEnd(6, '0').slice(0, 6);
             cell.fill = {
               type: 'pattern',
               pattern: 'solid',
@@ -2011,6 +2016,13 @@ export default function App() {
                   <Filter size={14} /> Bộ lọc
                   {(filterGroup || filterStatus || filterReferrer || filterRecruiter) && <span className="bg-orange-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">!</span>}
                 </button>
+                {/* Clear filters - chỉ hiện khi đang có bộ lọc */}
+                {(filterGroup || filterStatus || filterReferrer || filterRecruiter || search) && (
+                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setSearch(''); setPage(1); }}
+                    className="flex items-center gap-1.5 px-4 py-2 bg-orange-50 border border-orange-300 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 rounded-xl text-[12px] font-bold transition-all">
+                    <X size={13} /> Xóa bộ lọc
+                  </button>
+                )}
                 {/* Refresh */}
                 <button onClick={loadData} disabled={loading}
                   className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[12px] font-bold text-slate-600 hover:border-blue-400 transition-all disabled:opacity-50">
@@ -2037,7 +2049,7 @@ export default function App() {
                   if (count === 0) return null;
                   return (
                     <div key={s.id} className="flex items-center whitespace-nowrap">
-                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: getAutoBgColor(s.name) }}>
+                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: s.color_bg || getAutoBgColor(s.name) }}>
                         {s.name}
                         <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{count}</span>
                       </span>
