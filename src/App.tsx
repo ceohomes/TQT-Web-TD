@@ -1851,6 +1851,117 @@ export default function App() {
         { state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2' }
       ];
 
+      // ── Sheet 2: Tổng hợp thống kê ──────────────────────────────────────────
+      const summarySheet = workbook.addWorksheet('Tổng hợp');
+
+      // Title
+      summarySheet.mergeCells('A1:C1');
+      const titleCell = summarySheet.getCell('A1');
+      titleCell.value = 'THỐNG KÊ ỨNG VIÊN THEO TÌNH TRẠNG';
+      titleCell.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A6B' } };
+      titleCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(1).height = 36;
+
+      // Date
+      summarySheet.mergeCells('A2:C2');
+      const dateCell = summarySheet.getCell('A2');
+      dateCell.value = `Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}  |  Tổng ứng viên: ${sorted.length}`;
+      dateCell.font = { italic: true, size: 10, color: { argb: 'FF64748B' } };
+      dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      summarySheet.getRow(2).height = 22;
+
+      // Header row
+      const summaryHeader = summarySheet.getRow(4);
+      summaryHeader.height = 28;
+      [
+        { col: 1, label: 'STT' },
+        { col: 2, label: 'TÌNH TRẠNG' },
+        { col: 3, label: 'SỐ LƯỢNG' },
+      ].forEach(({ col, label }) => {
+        const cell = summaryHeader.getCell(col);
+        cell.value = label;
+        cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E4480' } };
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FF93C5FD' } },
+          bottom: { style: 'thin', color: { argb: 'FF93C5FD' } },
+          left: { style: 'thin', color: { argb: 'FF93C5FD' } },
+          right: { style: 'thin', color: { argb: 'FF93C5FD' } },
+        };
+      });
+
+      // Status rows — sorted by sort_order (already in statuses array order)
+      let totalCount = 0;
+      statuses.forEach((s, idx) => {
+        const count = statusCounts[s.name] || 0;
+        if (count === 0) return;
+        totalCount += count;
+        const row = summarySheet.getRow(5 + idx);
+        row.height = 24;
+
+        // STT
+        const sttCell = row.getCell(1);
+        sttCell.value = idx + 1;
+        sttCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+        // Tên tình trạng
+        const nameCell = row.getCell(2);
+        nameCell.value = s.name;
+        nameCell.font = { bold: true, size: 11 };
+
+        // Màu nền theo color_bg từ DB
+        const rawColor = s.color_bg || getAutoBgColor(s.name);
+        let hex = rawColor.replace('#', '');
+        if (hex.length === 3) hex = hex.split('').map((c: string) => c + c).join('');
+        hex = hex.toUpperCase().padEnd(6, '0').slice(0, 6);
+
+        [sttCell, nameCell].forEach(cell => {
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF' + hex } };
+          cell.border = {
+            top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          };
+        });
+
+        // Số lượng
+        const countCell = row.getCell(3);
+        countCell.value = count;
+        countCell.font = { bold: true, size: 13 };
+        countCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        countCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFAFAFA' } };
+        countCell.border = {
+          top: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          left: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+          right: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+        };
+      });
+
+      // Total row
+      const totalRowIdx = 5 + statuses.length;
+      const totalRow = summarySheet.getRow(totalRowIdx);
+      totalRow.height = 28;
+      summarySheet.mergeCells(`A${totalRowIdx}:B${totalRowIdx}`);
+      const totalLabelCell = totalRow.getCell(1);
+      totalLabelCell.value = 'TỔNG CỘNG';
+      totalLabelCell.font = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } };
+      totalLabelCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A6B' } };
+      totalLabelCell.alignment = { horizontal: 'center', vertical: 'middle' };
+      const totalCountCell = totalRow.getCell(3);
+      totalCountCell.value = sorted.length;
+      totalCountCell.font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+      totalCountCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1A3A6B' } };
+      totalCountCell.alignment = { horizontal: 'center', vertical: 'middle' };
+
+      // Column widths
+      summarySheet.getColumn(1).width = 8;
+      summarySheet.getColumn(2).width = 40;
+      summarySheet.getColumn(3).width = 14;
+
       // Write to buffer and save
       const buffer = await workbook.xlsx.writeBuffer();
       const fileName = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.xlsx`;
@@ -2009,13 +2120,6 @@ export default function App() {
                     className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-40 shadow-sm" />
                   {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X size={13} /></button>}
                 </div>
-                {/* Filter toggle */}
-                <button onClick={() => setShowFilters(p => !p)}
-                  className={cn('flex items-center gap-2 px-4 py-2 rounded-xl text-[12px] font-bold transition-all border',
-                    showFilters ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:border-blue-400')}>
-                  <Filter size={14} /> Bộ lọc
-                  {(filterGroup || filterStatus || filterReferrer || filterRecruiter) && <span className="bg-orange-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full">!</span>}
-                </button>
                 {/* Clear filters - chỉ hiện khi đang có bộ lọc */}
                 {(filterGroup || filterStatus || filterReferrer || filterRecruiter || search) && (
                   <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setSearch(''); setPage(1); }}
@@ -2023,11 +2127,6 @@ export default function App() {
                     <X size={13} /> Xóa bộ lọc
                   </button>
                 )}
-                {/* Refresh */}
-                <button onClick={loadData} disabled={loading}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-200 rounded-xl text-[12px] font-bold text-slate-600 hover:border-blue-400 transition-all disabled:opacity-50">
-                  <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Làm mới
-                </button>
                 {/* Export */}
                 <button onClick={exportExcel}
                   className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
@@ -2051,7 +2150,7 @@ export default function App() {
                     <div key={s.id} className="flex items-center whitespace-nowrap">
                       <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: s.color_bg || getAutoBgColor(s.name) }}>
                         {s.name}
-                        <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{count}</span>
+                        <span className="text-xs font-black text-black bg-white/60 px-2 py-0.5 rounded-full">{count}</span>
                       </span>
                     </div>
                   );
@@ -2060,7 +2159,7 @@ export default function App() {
                   <div className="flex items-center whitespace-nowrap">
                     <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 shadow-sm flex items-center gap-2 border border-black/5">
                       Chưa xác định
-                      <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
+                      <span className="text-xs font-black text-black bg-white/60 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
                     </span>
                   </div>
                 )}
@@ -2160,7 +2259,7 @@ export default function App() {
                                   <td>{c.desired_location}</td>
                                   <td className="text-center text-xs">{c.referral_date}</td>
                                   <td>{c.referrer}</td>
-                                  <td className="text-xs font-bold text-slate-700 text-center">{c.recruiter}</td>
+                                  <td>{c.recruiter}</td>
                                   <td className="text-center">
                                     {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
                                   </td>
