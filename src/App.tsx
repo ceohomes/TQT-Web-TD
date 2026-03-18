@@ -1580,7 +1580,7 @@ function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> 
                 <tr key={doc.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
                   <td className="px-4 py-3 text-center font-bold text-blue-700 text-xs">{idx + 1}</td>
                   <td className="px-4 py-3">
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 w-full">
                       {getFileIcon(doc.file_type)}
                       {editingId === doc.id ? (
                         <div className="flex items-center gap-1 flex-1">
@@ -1599,10 +1599,10 @@ function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> 
                           </button>
                         </div>
                       ) : (
-                        <span className="font-semibold text-slate-800 truncate max-w-xs">{doc.name}</span>
+                        <span className="font-semibold text-slate-800 break-all leading-snug">{doc.name}</span>
                       )}
                     </div>
-                    <p className="text-xs text-slate-400 mt-0.5 ml-7">{doc.file_name}</p>
+                    <p className="text-xs text-slate-400 mt-0.5 ml-7 break-all">{doc.file_name}</p>
                   </td>
                   <td className="px-4 py-3">
                     <span className={cn(
