@@ -537,22 +537,22 @@ function CandidateModal({
           </div>
 
           <div className="border border-slate-400 rounded-xl overflow-hidden shadow-sm bg-white">
-            <table className="w-full text-[12px] border-collapse min-w-[1800px] font-roboto">
-              <thead className="bg-blue-50 sticky top-0 z-10">
-                <tr className="text-blue-900 uppercase font-black tracking-tighter text-[12px]">
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-10 text-center bg-blue-50">STT</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-56 text-center bg-blue-50">Tên ứng viên *</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-20 text-center bg-blue-50">Năm sinh</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-32 text-center bg-blue-50">SĐT *</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Kinh nghiệm/Năng lực</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Vị trí ứng tuyển</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Địa điểm làm việc</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-32 text-center bg-blue-50">Ngày giới thiệu</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">Người giới thiệu</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">NS P.TD nhận</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-48 text-center bg-blue-50">Tình trạng</th>
-                  <th className="p-2 border-b-2 border-r border-blue-200 w-64 text-center bg-blue-50">Ghi chú</th>
-                  <th className="p-2 border-b-2 border-blue-200 w-10 bg-blue-50"></th>
+            <table className="data-table min-w-[1800px] font-roboto">
+              <thead>
+                <tr>
+                  <th style={{ width: 50 }}>STT</th>
+                  <th style={{ minWidth: 200 }}>Tên ứng viên</th>
+                  <th style={{ width: 80 }}>Năm sinh</th>
+                  <th style={{ width: 120 }}>SĐT</th>
+                  <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
+                  <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
+                  <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
+                  <th style={{ width: 120 }}>Ngày giới thiệu</th>
+                  <th style={{ minWidth: 160 }}>Người giới thiệu</th>
+                  <th style={{ minWidth: 160 }}>NS P.TD nhận</th>
+                  <th style={{ minWidth: 180 }}>Tình trạng</th>
+                  <th style={{ minWidth: 200 }}>Ghi chú</th>
+                  <th style={{ width: 50 }}></th>
                 </tr>
               </thead>
               <tbody onPaste={handlePaste}>
@@ -721,14 +721,32 @@ function ConfirmDeleteModal({ name, onConfirm, onClose }: {
 // Hàm lấy màu nền tự động dựa trên nội dung (phù hợp với nội dung)
 const getAutoBgColor = (name: string) => {
   const n = name.toLowerCase();
-  if (n.includes('đi làm') || n.includes('thành công') || n.includes('nhận')) return '#bbf7d0'; // Xanh lá nhạt
-  if (n.includes('hợp đồng') || n.includes('ký')) return '#a5f3fc'; // Xanh cyan nhạt
-  if (n.includes('phỏng vấn') || n.includes('test')) return '#fef08a'; // Vàng nhạt (Chờ PV/Test)
-  if (n.includes('thủ tục') || n.includes('pv đạt')) return '#e9d5ff'; // Tím nhạt (Cho PV Đạt/Đang làm thủ tục)
-  if (n.includes('chờ') || n.includes('kết quả')) return '#bfdbfe'; // Xanh dương nhạt (Chờ kết quả)
-  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Xanh dương nhạt (Chưa liên hệ)
-  if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại')) return '#fecaca'; // Đỏ nhạt
-  return '#f1f5f9'; // Xám nhạt mặc định
+  
+  // Specific matches based on user request and common statuses
+  if (n.includes('đi làm') || n.includes('thành công') || n.includes('nhận')) return '#bbf7d0'; // Green
+  if (n.includes('hợp đồng') || n.includes('ký')) return '#a5f3fc'; // Cyan
+  if (n.includes('phỏng vấn') || n.includes('test')) return '#fef08a'; // Yellow
+  if (n.includes('thủ tục') || n.includes('pv đạt')) return '#e9d5ff'; // Purple
+  if (n.includes('chờ') || n.includes('kết quả')) return '#bfdbfe'; // Blue
+  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Blue
+  if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại')) return '#fecaca'; // Red
+  
+  // Specific requests from Image 1
+  if (n.includes('chuyển hồ sơ uv sang tt đào tạo nghề')) return '#ffedd5'; // Orange nhạt
+  if (n.includes('đã pv, chưa có kq')) return '#dbeafe'; // Blue nhạt (thay cho xanh lá nhạt để tránh trùng lặp với Thành công)
+  
+  // Dynamic fallback for uniqueness (using a simple color palette rotation)
+  const palette = [
+    '#f1f5f9', '#fef2f2', '#fff7ed', '#fefce8', '#f0fdf4', 
+    '#ecfeff', '#f5f3ff', '#fdf2f8', '#fff1f2', '#f8fafc'
+  ];
+  
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) {
+    hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const index = Math.abs(hash) % palette.length;
+  return palette[index];
 };
 
 function StatusBadge({ status }: { status: string; statuses?: RecruitmentStatus[] }) {
@@ -1072,7 +1090,7 @@ function ConfigView({
   };
 
   return (
-    <div className="space-y-8">
+    <div className="p-4 md:p-6 space-y-8">
       <div className="flex items-center gap-3">
         <div className="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center">
           <Settings size={20} className="text-white" />
@@ -1862,7 +1880,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 overflow-auto p-4 md:p-6 w-full">
+      <main className="flex-1 overflow-auto w-full bg-[#f0f4fa]">
 
         {/* ── Config View ── */}
         {activeView === 'config' && (
@@ -1880,44 +1898,44 @@ export default function App() {
 
         {/* ── List View ── */}
         {activeView === 'list' && (
-          <div className="space-y-4">
-            {/* Row 1: Title + Status Summary */}
-            <div className="flex flex-wrap items-center gap-6 justify-between">
-              <div className="flex items-center gap-6">
-                <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
-                  <div className="w-1 h-5 bg-orange-500 rounded-full" />
-                  Danh sách ứng viên
-                  <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
-                </h2>
+          <div className="p-4 md:p-6 space-y-6">
+            {/* Row 1: Title */}
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
+                <div className="w-1 h-5 bg-orange-500 rounded-full" />
+                Danh sách ứng viên
+                <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
+              </h2>
+            </div>
 
-                {/* Compact Status Summary */}
-                <div className="hidden xl:flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {statuses.map(s => {
-                    const count = statusCounts[s.name] || 0;
-                    if (count === 0) return null;
-                    return (
-                      <div key={s.id} className="flex items-center whitespace-nowrap">
-                        <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider px-2 py-0.5 rounded shadow-sm flex items-center gap-2" style={{ backgroundColor: getAutoBgColor(s.name) }}>
-                          {s.name}
-                          <span className="text-xs font-black opacity-60 bg-white/40 px-1.5 rounded-full">{count}</span>
-                        </span>
-                      </div>
-                    );
-                  })}
-                  {statusCounts['Chưa xác định'] > 0 && (
-                    <div className="flex items-center whitespace-nowrap">
-                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 shadow-sm flex items-center gap-2">
-                        Chưa xác định
-                        <span className="text-xs font-black opacity-60 bg-white/40 px-1.5 rounded-full">{statusCounts['Chưa xác định']}</span>
+            {/* Row 2: Status Summary Bar */}
+            <div className="bg-slate-50/50 border border-slate-200 rounded-2xl p-4 shadow-sm">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+                {statuses.map(s => {
+                  const count = statusCounts[s.name] || 0;
+                  if (count === 0) return null;
+                  return (
+                    <div key={s.id} className="flex items-center whitespace-nowrap">
+                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: getAutoBgColor(s.name) }}>
+                        {s.name}
+                        <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{count}</span>
                       </span>
                     </div>
-                  )}
-                </div>
+                  );
+                })}
+                {statusCounts['Chưa xác định'] > 0 && (
+                  <div className="flex items-center whitespace-nowrap">
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 shadow-sm flex items-center gap-2 border border-black/5">
+                      Chưa xác định
+                      <span className="text-xs font-black opacity-60 bg-white/40 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Row 2: Combined Filters + Toolbar in Yellow Box */}
-            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-4 items-end justify-between shadow-sm font-roboto">
+            {/* Row 3: Combined Filters + Toolbar in Yellow Box */}
+            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-4 items-end justify-between shadow-sm font-roboto mt-2">
               {/* Left: Dropdown Filters */}
               <div className="flex flex-wrap gap-3 items-end">
                 <div className="space-y-1">
@@ -2018,18 +2036,18 @@ export default function App() {
                   <table className="data-table">
                       <thead>
                         <tr>
-                          <th style={{ width: 45 }}>STT</th>
-                          <th style={{ minWidth: 160 }}>Tên ứng viên</th>
-                          <th style={{ width: 70 }}>Năm sinh</th>
-                          <th style={{ width: 110 }}>SĐT</th>
-                          <th style={{ minWidth: 150 }}>Kinh nghiệm/năng lực</th>
-                          <th style={{ minWidth: 150 }}>Vị trí ứng tuyển</th>
-                          <th style={{ minWidth: 180 }}>Địa điểm mong muốn làm việc</th>
-                          <th style={{ width: 100 }}>Ngày giới thiệu</th>
-                          <th style={{ minWidth: 140 }}>Người giới thiệu</th>
-                          <th style={{ minWidth: 140 }}>NS P.TD nhận</th>
-                          <th style={{ minWidth: 160 }}>Tình trạng</th>
-                          <th style={{ minWidth: 120 }}>Ghi chú</th>
+                          <th style={{ width: 50 }}>STT</th>
+                          <th style={{ minWidth: 200 }}>Tên ứng viên</th>
+                          <th style={{ width: 80 }}>Năm sinh</th>
+                          <th style={{ width: 120 }}>SĐT</th>
+                          <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
+                          <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
+                          <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
+                          <th style={{ width: 120 }}>Ngày giới thiệu</th>
+                          <th style={{ minWidth: 160 }}>Người giới thiệu</th>
+                          <th style={{ minWidth: 160 }}>NS P.TD Nhận</th>
+                          <th style={{ minWidth: 180 }}>Tình trạng</th>
+                          <th style={{ minWidth: 200 }}>Ghi chú</th>
                           <th style={{ width: 80 }}>Thao tác</th>
                         </tr>
                       </thead>
