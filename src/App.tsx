@@ -757,11 +757,11 @@ const getAutoBgColor = (name: string) => {
   return palette[index];
 };
 
-function StatusBadge({ status }: { status: string; statuses?: RecruitmentStatus[] }) {
-  // Mặc định màu chữ là đen theo yêu cầu của người dùng
+function StatusBadge({ status, statuses }: { status: string; statuses?: RecruitmentStatus[] }) {
   const textColor = '#000000';
-
-  const bgColor = getAutoBgColor(status);
+  // Ưu tiên màu từ DB (color_bg), fallback về auto color
+  const dbStatus = statuses?.find(s => s.name === status);
+  const bgColor = dbStatus?.color_bg || getAutoBgColor(status);
 
   return (
     <span className="status-badge" style={{ background: bgColor, color: textColor }}>
@@ -960,7 +960,8 @@ function ConfigView({
 
         const { error } = await sb.from('settings_statuses').update({
           name: editingStatus.name,
-          sort_order: editingStatus.sort_order
+          sort_order: editingStatus.sort_order,
+          color_bg: editingStatus.color_bg || null
         }).eq('id', editingStatus.id);
         if (error) throw error;
 
@@ -973,7 +974,8 @@ function ConfigView({
       } else {
         const { error } = await sb.from('settings_statuses').insert([{
           name: editingStatus.name,
-          sort_order: editingStatus.sort_order
+          sort_order: editingStatus.sort_order,
+          color_bg: editingStatus.color_bg || null
         }]);
         if (error) throw error;
       }
@@ -1124,7 +1126,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {groups.map(g => (
-              <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-blue-200 transition-all">
+              <div key={g.id} className="group flex items-center justify-between p-4 bg-slate-200 rounded-xl border border-slate-400 hover:border-blue-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-blue-600 rounded-full" />
@@ -1176,7 +1178,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {referrers.map(r => (
-              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-orange-200 transition-all">
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-200 rounded-xl border border-slate-400 hover:border-orange-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-orange-600 rounded-full" />
@@ -1233,7 +1235,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {statuses.map(s => (
-              <div key={s.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-emerald-200 transition-all">
+              <div key={s.id} className="group flex items-center justify-between p-4 bg-slate-200 rounded-xl border border-slate-400 hover:border-emerald-200 transition-all">
                 <div className="flex items-center gap-3">
                   <div className="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-black bg-white border border-slate-200 text-slate-400">
                     {s.sort_order}
@@ -1267,6 +1269,46 @@ function ConfigView({
                     <input type="number" value={editingStatus.sort_order} onChange={e => setEditingStatus({ ...editingStatus, sort_order: parseInt(e.target.value) })}
                       className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-emerald-500" />
                   </div>
+
+                  {/* Color Picker */}
+                  <div className="space-y-2">
+                    <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Màu nền badge</label>
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        '#93c5fd','#60a5fa','#4ade80','#34d399','#22d3ee',
+                        '#facc15','#fb923c','#f87171','#f472b6','#e879f9',
+                        '#a78bfa','#818cf8','#2dd4bf','#84cc16','#fbbf24',
+                        '#cbd5e1','#fca5a5','#c084fc','#86efac','#67e8f9',
+                      ].map(color => (
+                        <button key={color} type="button"
+                          onClick={() => setEditingStatus({ ...editingStatus, color_bg: color })}
+                          className="w-7 h-7 rounded-lg border-2 transition-all hover:scale-110"
+                          style={{
+                            backgroundColor: color,
+                            borderColor: editingStatus.color_bg === color ? '#1e3a8a' : 'transparent',
+                            boxShadow: editingStatus.color_bg === color ? '0 0 0 2px #1e3a8a' : 'none'
+                          }}
+                        />
+                      ))}
+                      {/* Custom color input */}
+                      <label className="w-7 h-7 rounded-lg border-2 border-dashed border-slate-300 flex items-center justify-center cursor-pointer hover:border-emerald-400 transition-all relative overflow-hidden" title="Chọn màu tùy chỉnh">
+                        <span className="text-[10px] text-slate-400 font-bold">+</span>
+                        <input type="color"
+                          value={editingStatus.color_bg || '#ffffff'}
+                          onChange={e => setEditingStatus({ ...editingStatus, color_bg: e.target.value })}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                      </label>
+                    </div>
+                    {editingStatus.color_bg && (
+                      <div className="flex items-center gap-2 mt-1">
+                        <div className="w-5 h-5 rounded-md border border-slate-200" style={{ backgroundColor: editingStatus.color_bg }} />
+                        <span className="text-xs text-slate-500 font-mono">{editingStatus.color_bg}</span>
+                        <button type="button" onClick={() => setEditingStatus({ ...editingStatus, color_bg: undefined })}
+                          className="text-xs text-red-400 hover:text-red-600 font-bold ml-1">✕ Xóa màu</button>
+                      </div>
+                    )}
+                  </div>
+
                   <div className="p-4 bg-slate-50 rounded-xl flex items-center justify-center gap-3">
                     <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Xem trước:</span>
                     <StatusBadge status={editingStatus.name || 'Tên mẫu'} statuses={[editingStatus as RecruitmentStatus]} />
@@ -1295,7 +1337,7 @@ function ConfigView({
 
           <div className="space-y-3">
             {recruiters.map(r => (
-              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-100 rounded-xl border border-slate-300 hover:border-purple-200 transition-all">
+              <div key={r.id} className="group flex items-center justify-between p-4 bg-slate-200 rounded-xl border border-slate-400 hover:border-purple-200 transition-all">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 bg-purple-600 rounded-full" />
