@@ -541,15 +541,15 @@ function CandidateModal({
               <thead>
                 <tr>
                   <th style={{ width: 50 }}>STT</th>
-                  <th style={{ minWidth: 200 }}>Tên ứng viên</th>
+                  <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                   <th style={{ width: 80 }}>Năm sinh</th>
                   <th style={{ width: 120 }}>SĐT</th>
                   <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                   <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                   <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
                   <th style={{ width: 120 }}>Ngày giới thiệu</th>
-                  <th style={{ minWidth: 160 }}>Người giới thiệu</th>
-                  <th style={{ minWidth: 160 }}>NS P.TD nhận</th>
+                  <th style={{ minWidth: 120 }}>Người giới thiệu</th>
+                  <th style={{ minWidth: 120 }}>NS P.TD nhận</th>
                   <th style={{ minWidth: 180 }}>Tình trạng</th>
                   <th style={{ minWidth: 200 }}>Ghi chú</th>
                   <th style={{ width: 50 }}></th>
@@ -647,10 +647,10 @@ function CandidateModal({
                         {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                       </select>
                     </td>
-                    <td className="p-1 border-r border-slate-300">
+                    <td className="p-1">
                       <input value={row.notes || ''} onChange={e => updateRow(idx, 'notes', e.target.value)}
                         data-field="notes" data-row-idx={idx}
-                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
+                        className="w-full bg-transparent outline-none px-2 py-1.5 rounded text-[12px]" placeholder="..." />
                     </td>
                     <td className="p-1 text-center">
                       <button onClick={() => removeRow(idx)} className="text-slate-300 hover:text-red-500 transition-colors p-1" title="Xóa dòng">
@@ -1857,8 +1857,8 @@ export default function App() {
       </aside>
 
       {/* Header */}
-      <header className="sticky top-0 z-30 border-b border-[#1e3a5f] px-5 py-0 flex items-center justify-between min-h-[60px]"
-        style={{ background: '#1a3a6b' }}>
+      <header className="sticky top-0 z-30 border-b border-[#0c3040] px-5 py-0 flex items-center justify-between min-h-[60px]"
+        style={{ background: '#164e63' }}>
         <div className="flex items-center gap-3 cursor-pointer" onClick={() => setIsSidebarOpen(true)}>
           <div className="p-1.5 bg-white/10 rounded-lg text-blue-200 hover:text-white transition-colors">
             <Menu size={18} />
@@ -2037,15 +2037,15 @@ export default function App() {
                       <thead>
                         <tr>
                           <th style={{ width: 50 }}>STT</th>
-                          <th style={{ minWidth: 200 }}>Tên ứng viên</th>
+                          <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                           <th style={{ width: 80 }}>Năm sinh</th>
                           <th style={{ width: 120 }}>SĐT</th>
                           <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                           <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                           <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
                           <th style={{ width: 120 }}>Ngày giới thiệu</th>
-                          <th style={{ minWidth: 160 }}>Người giới thiệu</th>
-                          <th style={{ minWidth: 160 }}>NS P.TD Nhận</th>
+                          <th style={{ minWidth: 120 }}>Người giới thiệu</th>
+                          <th style={{ minWidth: 120 }}>NS P.TD Nhận</th>
                           <th style={{ minWidth: 180 }}>Tình trạng</th>
                           <th style={{ minWidth: 200 }}>Ghi chú</th>
                           <th style={{ width: 80 }}>Thao tác</th>
