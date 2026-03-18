@@ -5,6 +5,8 @@ import {
   ChevronDown, Users, Menu, Database, FileDown, RefreshCw,
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
 } from 'lucide-react';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 import { supabase as supabaseInit, reinitSupabase } from './supabase';
 import type { Candidate, Group, RecruitmentStatus, Referrer, Recruiter, Toast } from './types';
 import { clsx } from 'clsx';
@@ -721,10 +723,10 @@ const getAutoBgColor = (name: string) => {
   const n = name.toLowerCase();
   if (n.includes('đi làm') || n.includes('thành công') || n.includes('nhận')) return '#bbf7d0'; // Xanh lá nhạt
   if (n.includes('hợp đồng') || n.includes('ký')) return '#a5f3fc'; // Xanh cyan nhạt
-  if (n.includes('phỏng vấn') || n.includes('test')) return '#fde68a'; // Vàng nhạt
+  if (n.includes('phỏng vấn') || n.includes('test')) return '#fef08a'; // Vàng nhạt (Chờ PV/Test)
   if (n.includes('thủ tục') || n.includes('pv đạt')) return '#e9d5ff'; // Tím nhạt (Cho PV Đạt/Đang làm thủ tục)
-  if (n.includes('chờ') || n.includes('kết quả')) return '#fed7aa'; // Cam nhạt
-  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Xanh dương nhạt
+  if (n.includes('chờ') || n.includes('kết quả')) return '#bfdbfe'; // Xanh dương nhạt (Chờ kết quả)
+  if (n.includes('liên hệ') || n.includes('đang')) return '#bfdbfe'; // Xanh dương nhạt (Chưa liên hệ)
   if (n.includes('không phù hợp') || n.includes('hủy') || n.includes('từ chối') || n.includes('loại')) return '#fecaca'; // Đỏ nhạt
   return '#f1f5f9'; // Xám nhạt mặc định
 };
@@ -1625,156 +1627,167 @@ export default function App() {
     statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
 
-  // Export to Excel (SpreadsheetML – không cần thư viện ngoài)
-  const exportExcel = () => {
-    const esc = (v: any) => String(v ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  // Export to Excel using exceljs for rich styling (matching web app)
+  const exportExcel = async () => {
+    try {
+      showToast('Đang chuẩn bị file Excel...', 'loading');
+      
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('Danh sách UV');
 
-    // Bảng màu nhóm (hex RRGGBB)
-    const groupBgColors  = ['FFF3E0','E8F5E9','EDE9FE','FCE4EC','E0F2FE','FEF9C3'];
-    const groupFgColors  = ['E65100','1B5E20','4A148C','880E4F','01579B','F57F17'];
+      // Define columns with widths matching web app proportions
+      worksheet.columns = [
+        { header: 'STT', key: 'stt', width: 6 },
+        { header: 'Tên ứng viên', key: 'full_name', width: 25 },
+        { header: 'Năm sinh', key: 'birth_year', width: 10 },
+        { header: 'SĐT', key: 'phone', width: 15 },
+        { header: 'Kinh nghiệm/Năng lực', key: 'experience', width: 25 },
+        { header: 'Vị trí ứng tuyển', key: 'position', width: 25 },
+        { header: 'Địa điểm mong muốn làm việc', key: 'desired_location', width: 25 },
+        { header: 'Ngày giới thiệu', key: 'referral_date', width: 15 },
+        { header: 'Người giới thiệu', key: 'referrer', width: 20 },
+        { header: 'NS P.TD nhận', key: 'recruiter', width: 20 },
+        { header: 'Tình trạng', key: 'recruitment_status', width: 22 },
+        { header: 'Ghi chú', key: 'notes', width: 45 },
+      ];
 
-    // Tính màu tình trạng từ getAutoBgColor
-    const statusBgHex = (name: string) =>
-      getAutoBgColor(name).replace('#','').toUpperCase();
+      // Style header row
+      const headerRow = worksheet.getRow(1);
+      headerRow.height = 35;
+      headerRow.eachCell((cell) => {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: 'FF1A3A6B' }
+        };
+        cell.font = {
+          bold: true,
+          color: { argb: 'FFFFFFFF' },
+          size: 11,
+          name: 'Arial'
+        };
+        cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+          left: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+          bottom: { style: 'thin', color: { argb: 'FFFFFFFF' } },
+          right: { style: 'thin', color: { argb: 'FFFFFFFF' } }
+        };
+      });
 
-    // Styles (indexed)
-    const styles = `
-<Styles>
-  <Style ss:ID="Header">
-    <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
-    <Font ss:Bold="1" ss:Color="#FFFFFF" ss:Size="11" ss:FontName="Calibri"/>
-    <Interior ss:Color="#1A3A6B" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#FFFFFF"/>
-      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#7F9DB9"/>
-    </Borders>
-  </Style>
-  ${groupBgColors.map((bg, i) => `
-  <Style ss:ID="Group${i}">
-    <Alignment ss:Horizontal="Left" ss:Vertical="Center"/>
-    <Font ss:Bold="1" ss:Color="#${groupFgColors[i]}" ss:Size="11" ss:FontName="Calibri"/>
-    <Interior ss:Color="#${bg}" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Top" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#${groupFgColors[i]}"/>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#${groupFgColors[i]}"/>
-    </Borders>
-  </Style>`).join('')}
-  <Style ss:ID="DataNormal">
-    <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
-    <Font ss:Size="10" ss:FontName="Calibri" ss:Color="#1E293B"/>
-    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-    </Borders>
-  </Style>
-  <Style ss:ID="DataCenter">
-    <Alignment ss:Horizontal="Center" ss:Vertical="Center"/>
-    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#1E40AF"/>
-    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-    </Borders>
-  </Style>
-  <Style ss:ID="DataBold">
-    <Alignment ss:Horizontal="Left" ss:Vertical="Center" ss:WrapText="1"/>
-    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#1E293B"/>
-    <Interior ss:Color="#FFFFFF" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-    </Borders>
-  </Style>
-  ${statuses.map(s => {
-    const bg = statusBgHex(s.name);
-    return `<Style ss:ID="Status_${bg}">
-    <Alignment ss:Horizontal="Center" ss:Vertical="Center" ss:WrapText="1"/>
-    <Font ss:Size="10" ss:Bold="1" ss:FontName="Calibri" ss:Color="#000000"/>
-    <Interior ss:Color="#${bg}" ss:Pattern="Solid"/>
-    <Borders>
-      <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-      <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#CBD5E1"/>
-    </Borders>
-  </Style>`;
-  }).join('')}
-</Styles>`;
+      let lastGroup = '';
+      let sttInGroup = 0;
 
-    const colWidths = [40, 160, 60, 90, 160, 180, 200, 90, 130, 120, 160, 220];
-    const colDefs = colWidths.map(w => `<Column ss:Width="${w}"/>`).join('');
+      // Group colors (matching web app logic)
+      const groupBgColors = ['FFF3E0', 'E8F5E9', 'EDE9FE', 'FCE4EC', 'E0F2FE', 'FEF9C3'];
+      const groupFgColors = ['E65100', '1B5E20', '4A148C', '880E4F', '01579B', 'F57F17'];
 
-    const headers = ['STT','Tên ứng viên','Năm sinh','SĐT','Kinh nghiệm/Năng lực','Vị trí ứng tuyển','Địa điểm mong muốn làm việc','Ngày giới thiệu','Người giới thiệu','NS P.TD nhận','Tình trạng','Ghi chú'];
-    const headerRow = `<Row ss:Height="30">${headers.map(h => `<Cell ss:StyleID="Header"><Data ss:Type="String">${esc(h)}</Data></Cell>`).join('')}</Row>`;
+      for (const c of sorted) {
+        if (c.group_type !== lastGroup) {
+          lastGroup = c.group_type;
+          sttInGroup = 0;
+          const gIdx = groups.findIndex(g => g.code === c.group_type);
+          const gName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
+          const roman = toRoman(gIdx + 1);
+          const safeGIdx = gIdx >= 0 ? gIdx % groupBgColors.length : 0;
 
-    const dataRowsXml: string[] = [];
-    let lastGroup = '';
-    let sttInGroup = 0;
+          // Add group header row
+          const groupRow = worksheet.addRow({
+            stt: roman,
+            full_name: gName
+          });
+          
+          // Merge cells for group header
+          worksheet.mergeCells(`B${groupRow.number}:L${groupRow.number}`);
+          
+          groupRow.height = 28;
+          groupRow.eachCell((cell) => {
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FF' + groupBgColors[safeGIdx] }
+            };
+            cell.font = {
+              bold: true,
+              color: { argb: 'FF' + groupFgColors[safeGIdx] },
+              size: 11,
+              name: 'Arial'
+            };
+            cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+            cell.border = {
+              bottom: { style: 'medium', color: { argb: 'FF' + groupFgColors[safeGIdx] } },
+              top: { style: 'medium', color: { argb: 'FF' + groupFgColors[safeGIdx] } }
+            };
+          });
+        }
+        
+        sttInGroup++;
+        const rowData = {
+          stt: sttInGroup,
+          full_name: c.full_name || '',
+          birth_year: c.birth_year || '',
+          phone: c.phone || '',
+          experience: c.experience || '',
+          position: c.position || '',
+          desired_location: c.desired_location || '',
+          referral_date: c.referral_date || '',
+          referrer: c.referrer || '',
+          recruiter: c.recruiter || '',
+          recruitment_status: c.recruitment_status || '',
+          notes: c.notes || ''
+        };
 
-    for (const c of sorted) {
-      if (c.group_type !== lastGroup) {
-        lastGroup = c.group_type;
-        sttInGroup = 0;
-        const gIdx = groups.findIndex(g => g.code === c.group_type);
-        const safeGIdx = gIdx >= 0 ? gIdx % groupBgColors.length : 0;
-        const gName = groups.find(g => g.code === c.group_type)?.name || c.group_type;
-        const roman = toRoman(gIdx + 1);
-        dataRowsXml.push(
-          `<Row ss:Height="24">` +
-          `<Cell ss:StyleID="Group${safeGIdx}"><Data ss:Type="String">${esc(roman)}</Data></Cell>` +
-          `<Cell ss:StyleID="Group${safeGIdx}" ss:MergeAcross="10"><Data ss:Type="String">${esc(gName)}</Data></Cell>` +
-          `</Row>`
-        );
+        const dataRow = worksheet.addRow(rowData);
+        
+        // Style data row
+        dataRow.eachCell((cell, colNumber) => {
+          cell.font = { size: 10, name: 'Arial', color: { argb: 'FF1E293B' } };
+          cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+          cell.border = {
+            bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
+            right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
+          };
+
+          if (colNumber === 1 || colNumber === 3 || colNumber === 4 || colNumber === 8 || colNumber === 11) { // STT, Năm sinh, SĐT, Ngày giới thiệu, Tình trạng
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          }
+          
+          if (colNumber === 1) { // STT
+            cell.font = { bold: true, color: { argb: 'FF1E40AF' } };
+          }
+          if (colNumber === 2) { // Tên ứng viên
+            cell.font = { bold: true, color: { argb: 'FF1E293B' } };
+          }
+
+          // Style status cell
+          if (colNumber === 11 && c.recruitment_status) {
+            const hexColor = getAutoBgColor(c.recruitment_status).replace('#', '').toUpperCase();
+            cell.fill = {
+              type: 'pattern',
+              pattern: 'solid',
+              fgColor: { argb: 'FF' + hexColor }
+            };
+            cell.font = { bold: true, color: { argb: 'FF000000' }, size: 10 };
+            cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+          }
+        });
       }
-      sttInGroup++;
-      const bg = statusBgHex(c.recruitment_status || '');
-      const statusStyleId = `Status_${bg}`;
-      const fields = [c.full_name, c.birth_year, c.phone, c.experience, c.position, c.desired_location, c.referral_date, c.referrer, c.recruiter];
-      dataRowsXml.push(
-        `<Row ss:Height="22">` +
-        `<Cell ss:StyleID="DataCenter"><Data ss:Type="Number">${sttInGroup}</Data></Cell>` +
-        `<Cell ss:StyleID="DataBold"><Data ss:Type="String">${esc(c.full_name)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.birth_year)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.phone)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.experience)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.position)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.desired_location)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.referral_date)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.referrer)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.recruiter)}</Data></Cell>` +
-        `<Cell ss:StyleID="${statusStyleId}"><Data ss:Type="String">${esc(c.recruitment_status)}</Data></Cell>` +
-        `<Cell ss:StyleID="DataNormal"><Data ss:Type="String">${esc(c.notes)}</Data></Cell>` +
-        `</Row>`
-      );
+
+      // Freeze first row
+      worksheet.views = [
+        { state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2' }
+      ];
+
+      // Write to buffer and save
+      const buffer = await workbook.xlsx.writeBuffer();
+      const fileName = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g, '-')}.xlsx`;
+      saveAs(new Blob([buffer]), fileName);
+
+      showToast('✅ Đã xuất Excel thành công', 'success');
+    } catch (error) {
+      console.error('Export error:', error);
+      showToast('❌ Lỗi khi xuất Excel', 'error');
     }
-
-    const xml = `<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
-  xmlns:x="urn:schemas-microsoft-com:office:excel">
-  <ExcelWorkbook xmlns="urn:schemas-microsoft-com:office:excel">
-    <WindowHeight>12000</WindowHeight><WindowWidth>20000</WindowWidth>
-    <ProtectStructure>False</ProtectStructure>
-    <ProtectWindows>False</ProtectWindows>
-  </ExcelWorkbook>
-  ${styles}
-  <Worksheet ss:Name="Danh sách UV">
-    <Table>${colDefs}${headerRow}${dataRowsXml.join('')}</Table>
-    <WorksheetOptions xmlns="urn:schemas-microsoft-com:office:excel">
-      <FreezePanes/><FrozenNoSplit/>
-      <SplitHorizontal>1</SplitHorizontal><TopRowBottomPane>1</TopRowBottomPane>
-    </WorksheetOptions>
-  </Worksheet>
-</Workbook>`;
-
-    const blob = new Blob([xml], { type: 'application/vnd.ms-excel;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `UV_TQT_${new Date().toLocaleDateString('vi-VN').replace(/\//g,'-')}.xls`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast('✅ Đã xuất Excel', 'success');
   };
 
 
@@ -1783,7 +1796,7 @@ export default function App() {
   const deleteTarget = candidates.find(c => c.id === deleteId);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#f0f4fa]">
+    <div className="h-screen flex flex-col overflow-hidden bg-[#f0f4fa]">
 
       {/* Sidebar overlay */}
       {isSidebarOpen && (
@@ -1849,7 +1862,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="flex-1 p-4 md:p-6 w-full">
+      <main className="flex-1 overflow-auto p-4 md:p-6 w-full">
 
         {/* ── Config View ── */}
         {activeView === 'config' && (
@@ -1868,47 +1881,87 @@ export default function App() {
         {/* ── List View ── */}
         {activeView === 'list' && (
           <div className="space-y-4">
-            {/* Toolbar */}
-            <div className="flex flex-wrap items-center gap-3 justify-between">
-              <div className="flex items-center gap-3">
+            {/* Row 1: Title + Status Summary */}
+            <div className="flex flex-wrap items-center gap-6 justify-between">
+              <div className="flex items-center gap-6">
                 <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2">
                   <div className="w-1 h-5 bg-orange-500 rounded-full" />
                   Danh sách ứng viên
-                  <span className="text-xs font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full normal-case">{sorted.length}/{candidates.length}</span>
+                  <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
                 </h2>
-              </div>
 
-              {/* Status Summary */}
-              <div className="hidden lg:flex items-center gap-4 px-4 py-2 bg-slate-50 border border-slate-200 rounded-2xl overflow-x-auto max-w-[50%] no-scrollbar">
-                {statuses.map(s => {
-                  const count = statusCounts[s.name] || 0;
-                  if (count === 0) return null;
-                  return (
-                    <div key={s.id} className="flex items-center gap-1.5 whitespace-nowrap">
-                      <span className="text-[12px] font-bold text-slate-50 uppercase tracking-wider px-2 py-0.5 rounded shadow-sm" style={{ backgroundColor: getAutoBgColor(s.name), color: '#000' }}>
-                        {s.name}
+                {/* Compact Status Summary */}
+                <div className="hidden xl:flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {statuses.map(s => {
+                    const count = statusCounts[s.name] || 0;
+                    if (count === 0) return null;
+                    return (
+                      <div key={s.id} className="flex items-center whitespace-nowrap">
+                        <span className="text-[10px] font-bold text-slate-800 uppercase tracking-wider px-2 py-0.5 rounded shadow-sm flex items-center gap-2" style={{ backgroundColor: getAutoBgColor(s.name) }}>
+                          {s.name}
+                          <span className="text-xs font-black opacity-60 bg-white/40 px-1.5 rounded-full">{count}</span>
+                        </span>
+                      </div>
+                    );
+                  })}
+                  {statusCounts['Chưa xác định'] > 0 && (
+                    <div className="flex items-center whitespace-nowrap">
+                      <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 shadow-sm flex items-center gap-2">
+                        Chưa xác định
+                        <span className="text-xs font-black opacity-60 bg-white/40 px-1.5 rounded-full">{statusCounts['Chưa xác định']}</span>
                       </span>
-                      <span className="text-[12px] font-black text-blue-700">{count}</span>
                     </div>
-                  );
-                })}
-                {statusCounts['Chưa xác định'] > 0 && (
-                  <div className="flex items-center gap-1.5 whitespace-nowrap">
-                    <span className="text-[12px] font-bold text-slate-50 uppercase tracking-wider px-2 py-0.5 rounded bg-slate-200 text-slate-600 shadow-sm">
-                      Chưa xác định
-                    </span>
-                    <span className="text-[12px] font-black text-blue-700">{statusCounts['Chưa xác định']}</span>
-                  </div>
-                )}
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 2: Combined Filters + Toolbar in Yellow Box */}
+            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-4 items-end justify-between shadow-sm font-roboto">
+              {/* Left: Dropdown Filters */}
+              <div className="flex flex-wrap gap-3 items-end">
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Nhóm</label>
+                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[120px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả</option>
+                    {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Tình trạng</label>
+                  <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[160px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả tình trạng</option>
+                    {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Người giới thiệu</label>
+                  <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả người giới thiệu</option>
+                    {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">NS P.TD Nhận</label>
+                  <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
+                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
+                    <option value="">Tất cả nhân sự</option>
+                    {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                  </select>
+                </div>
               </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Right: Toolbar Buttons */}
+              <div className="flex items-center gap-2 flex-wrap pb-0.5">
                 {/* Search */}
                 <div className="relative">
                   <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
                     placeholder="Tìm kiếm..."
-                    className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-48 shadow-sm" />
+                    className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-40 shadow-sm" />
                   {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X size={13} /></button>}
                 </div>
                 {/* Filter toggle */}
@@ -1936,50 +1989,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* Filters */}
-            {showFilters && (
-              <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-6 py-4 flex flex-wrap gap-6 items-end shadow-sm font-roboto">
-                <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Nhóm</label>
-                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[180px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả</option>
-                    {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Tình trạng</label>
-                  <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[220px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả tình trạng</option>
-                    {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">Người giới thiệu</label>
-                  <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[200px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả người giới thiệu</option>
-                    {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-orange-800/60 uppercase tracking-wider block">NS P.TD Nhận</label>
-                  <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-4 py-2 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 focus:ring-2 focus:ring-orange-400/20 bg-white transition-all min-w-[200px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả nhân sự</option>
-                    {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                  </select>
-                </div>
-                {(filterGroup || filterStatus || filterReferrer || filterRecruiter) && (
-                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setPage(1); }}
-                    className="flex items-center gap-2 px-4 py-2 bg-white text-red-500 border border-red-200 rounded-xl text-[12px] font-bold hover:bg-red-50 transition-all shadow-sm active:scale-95">
-                    <RotateCw size={12} /> Xóa lọc
-                  </button>
-                )}
-              </div>
-            )}
-
             {/* ── No connection warning ── */}
             {!sb && !loading && (
               <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 flex items-center gap-4">
@@ -2005,9 +2014,8 @@ export default function App() {
             {/* ── Table ── */}
             {!loading && sb && (
               <>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-400 overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="data-table">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-400">
+                  <table className="data-table">
                       <thead>
                         <tr>
                           <th style={{ width: 45 }}>STT</th>
@@ -2109,7 +2117,6 @@ export default function App() {
                         </p>
                       </div>
                     )}
-                  </div>
                 </div>
 
                 {/* Pagination */}
