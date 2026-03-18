@@ -1806,10 +1806,11 @@ export default function App() {
         };
 
         const dataRow = worksheet.addRow(rowData);
+        dataRow.height = 40;
         
         // Style data row
         dataRow.eachCell((cell, colNumber) => {
-          cell.font = { size: 10, name: 'Arial', color: { argb: 'FF1E293B' } };
+          cell.font = { size: 11, name: 'Arial', color: { argb: 'FF1E293B' } };
           cell.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
           cell.border = {
             bottom: { style: 'thin', color: { argb: 'FFCBD5E1' } },
@@ -1867,7 +1868,7 @@ export default function App() {
       summarySheet.mergeCells('A2:C2');
       const dateCell = summarySheet.getCell('A2');
       dateCell.value = `Ngày xuất: ${new Date().toLocaleDateString('vi-VN')}  |  Tổng ứng viên: ${sorted.length}`;
-      dateCell.font = { italic: true, size: 10, color: { argb: 'FF000000' } };
+      dateCell.font = { italic: true, size: 11, color: { argb: 'FF000000' } };
       dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
       summarySheet.getRow(2).height = 22;
 
