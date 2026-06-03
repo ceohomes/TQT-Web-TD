@@ -4,7 +4,7 @@ import {
   Download, RotateCw, CheckCircle2, AlertCircle, Loader2,
   ChevronDown, Users, Menu, Database, FileDown, RefreshCw,
   ChevronLeft, ChevronRight, Eye, EyeOff, Key,
-  Paperclip, FileText, File, Upload, Pencil, ExternalLink,
+  Paperclip, FileText, File, Upload, Pencil, ExternalLink, QrCode,
 } from 'lucide-react';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
@@ -1703,6 +1703,132 @@ function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> 
   );
 }
 
+// ─── QR Code Modal ────────────────────────────────────────────────────────────
+
+function QRModal({ groups, onClose }: { groups: Group[]; onClose: () => void }) {
+  const [selectedGroup, setSelectedGroup] = useState(groups[0]?.code || '');
+  const [qrDataUrl, setQrDataUrl] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+
+  const selectedGroupName = groups.find(g => g.code === selectedGroup)?.name || '';
+
+  // Build form URL
+  const getFormUrl = () => {
+    const base = window.location.origin + '/form';
+    const params = new URLSearchParams();
+    const sbUrl = localStorage.getItem('sb_url') || import.meta.env.VITE_SUPABASE_URL || '';
+    const sbKey = localStorage.getItem('sb_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+    if (sbUrl) params.set('sb_url', sbUrl);
+    if (sbKey) params.set('sb_key', sbKey);
+    if (selectedGroup) params.set('group', selectedGroup);
+    if (selectedGroupName) params.set('group_name', encodeURIComponent(selectedGroupName));
+    return `${base}?${params.toString()}`;
+  };
+
+  const generateQR = async () => {
+    setGenerating(true);
+    const url = getFormUrl();
+    try {
+      // Use QR Server API (no package needed)
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=1a3a6b&margin=10&ecc=M`;
+      setQrDataUrl(qrUrl);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  // Auto-generate when group changes
+  React.useEffect(() => {
+    if (selectedGroup) generateQR();
+  }, [selectedGroup]);
+
+  const formUrl = getFormUrl();
+
+  const downloadQR = () => {
+    if (!qrDataUrl) return;
+    const link = document.createElement('a');
+    link.href = qrDataUrl;
+    link.download = `QR_UngVien_${selectedGroup}.png`;
+    link.click();
+  };
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(formUrl);
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl" onClick={e => e.stopPropagation()}>
+        {/* Header */}
+        <div className="bg-gradient-to-r from-[#1a3a6b] to-[#1e4480] px-5 py-4 flex items-center justify-between">
+          <div>
+            <h3 className="text-white font-black text-base">Tạo mã QR ứng tuyển</h3>
+            <p className="text-blue-300 text-[11px] mt-0.5">Ứng viên quét → điền form → lưu tự động</p>
+          </div>
+          <button onClick={onClose} className="text-white/60 hover:text-white transition-colors"><X size={18} /></button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          {/* Group selector */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Chọn nhóm lưu ứng viên</label>
+            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 bg-white cursor-pointer">
+              {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+            </select>
+          </div>
+
+          {/* QR Display */}
+          <div className="flex flex-col items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
+            {generating ? (
+              <div className="w-[200px] h-[200px] flex items-center justify-center">
+                <Loader2 className="animate-spin text-slate-400" size={32} />
+              </div>
+            ) : qrDataUrl ? (
+              <>
+                <img src={qrDataUrl} alt="QR Code" className="w-[200px] h-[200px] rounded-xl" />
+                <p className="text-[11px] text-slate-500 mt-2 font-medium text-center">Quét mã để mở form ứng tuyển</p>
+              </>
+            ) : (
+              <div className="w-[200px] h-[200px] flex items-center justify-center text-slate-300">
+                <QrCode size={64} />
+              </div>
+            )}
+          </div>
+
+          {/* Form URL */}
+          <div>
+            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Link form trực tiếp</label>
+            <div className="flex gap-2">
+              <input readOnly value={formUrl}
+                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-[11px] text-slate-600 bg-slate-50 outline-none min-w-0 truncate" />
+              <button onClick={copyUrl}
+                className="shrink-0 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[11px] font-bold transition-all">
+                Copy
+              </button>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex gap-2">
+            <button onClick={downloadQR} disabled={!qrDataUrl}
+              className="flex-1 py-2.5 bg-gradient-to-r from-[#1a3a6b] to-[#1e4480] hover:opacity-90 disabled:opacity-40 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
+              <Download size={13} /> Tải QR về
+            </button>
+            <button onClick={() => window.open(formUrl, '_blank')}
+              className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
+              <ExternalLink size={13} /> Mở form
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main App ─────────────────────────────────────────────────────────────────
 
 export default function App() {
@@ -1722,6 +1848,7 @@ export default function App() {
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; candidate: Partial<Candidate> } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showQRModal, setShowQRModal] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -2464,6 +2591,11 @@ export default function App() {
                   className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
                   <FileDown size={13} /> Xuất Excel
                 </button>
+                {/* QR Code */}
+                <button onClick={() => setShowQRModal(true)}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-[#1a3a6b] hover:bg-[#1e4480] text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
+                  <QrCode size={13} /> Tạo mã QR
+                </button>
                 {/* Add */}
                 <button onClick={() => setModal({ type: 'add', candidate: { ...EMPTY_CANDIDATE } })}
                   className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-[12px] font-black transition-all shadow-lg shadow-orange-500/30">
@@ -2659,6 +2791,7 @@ export default function App() {
 
       {/* Modals */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onSave={handleSaveSettings} />}
+      {showQRModal && <QRModal groups={groups} onClose={() => setShowQRModal(false)} />}
       {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} />}
       {deleteId && <ConfirmDeleteModal name={deleteTarget?.full_name || ''} onConfirm={handleDelete} onClose={() => setDeleteId(null)} />}
 
