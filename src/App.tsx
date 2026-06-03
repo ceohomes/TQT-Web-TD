@@ -1706,57 +1706,49 @@ function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> 
 // ─── QR Code Modal ────────────────────────────────────────────────────────────
 
 function QRModal({ groups, onClose }: { groups: Group[]; onClose: () => void }) {
-  const [selectedGroup, setSelectedGroup] = useState(groups[0]?.code || '');
   const [qrDataUrl, setQrDataUrl] = useState('');
-  const [generating, setGenerating] = useState(false);
-  const canvasRef = React.useRef<HTMLCanvasElement>(null);
+  const [copied, setCopied] = useState(false);
 
-  const selectedGroupName = groups.find(g => g.code === selectedGroup)?.name || '';
+  // Tự động tìm nhóm "Thông tin ứng viên (Điền theo Form)"
+  const formGroup = groups.find(g =>
+    g.name.toLowerCase().includes('thông tin ứng viên') ||
+    g.name.toLowerCase().includes('điền theo form') ||
+    g.code.toLowerCase().includes('form')
+  );
 
-  // Build form URL
   const getFormUrl = () => {
+    if (!formGroup) return '';
     const base = window.location.origin + '/form';
     const params = new URLSearchParams();
     const sbUrl = localStorage.getItem('sb_url') || import.meta.env.VITE_SUPABASE_URL || '';
     const sbKey = localStorage.getItem('sb_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
     if (sbUrl) params.set('sb_url', sbUrl);
     if (sbKey) params.set('sb_key', sbKey);
-    if (selectedGroup) params.set('group', selectedGroup);
-    if (selectedGroupName) params.set('group_name', encodeURIComponent(selectedGroupName));
+    params.set('group', formGroup.code);
+    params.set('group_name', formGroup.name);
     return `${base}?${params.toString()}`;
   };
 
-  const generateQR = async () => {
-    setGenerating(true);
-    const url = getFormUrl();
-    try {
-      // Use QR Server API (no package needed)
-      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(url)}&bgcolor=ffffff&color=1a3a6b&margin=10&ecc=M`;
-      setQrDataUrl(qrUrl);
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  // Auto-generate when group changes
-  React.useEffect(() => {
-    if (selectedGroup) generateQR();
-  }, [selectedGroup]);
-
   const formUrl = getFormUrl();
+
+  React.useEffect(() => {
+    if (!formUrl) return;
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(formUrl)}&bgcolor=ffffff&color=1a3a6b&margin=12&ecc=M`;
+    setQrDataUrl(qrUrl);
+  }, [formUrl]);
 
   const downloadQR = () => {
     if (!qrDataUrl) return;
     const link = document.createElement('a');
     link.href = qrDataUrl;
-    link.download = `QR_UngVien_${selectedGroup}.png`;
+    link.download = 'QR_UngVien_DienTheoForm.png';
     link.click();
   };
 
   const copyUrl = () => {
     navigator.clipboard.writeText(formUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   return (
@@ -1765,64 +1757,70 @@ function QRModal({ groups, onClose }: { groups: Group[]; onClose: () => void }) 
         {/* Header */}
         <div className="bg-gradient-to-r from-[#1a3a6b] to-[#1e4480] px-5 py-4 flex items-center justify-between">
           <div>
-            <h3 className="text-white font-black text-base">Tạo mã QR ứng tuyển</h3>
+            <h3 className="text-white font-black text-base">Mã QR ứng tuyển</h3>
             <p className="text-blue-300 text-[11px] mt-0.5">Ứng viên quét → điền form → lưu tự động</p>
           </div>
           <button onClick={onClose} className="text-white/60 hover:text-white transition-colors"><X size={18} /></button>
         </div>
 
         <div className="p-5 space-y-4">
-          {/* Group selector */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Chọn nhóm lưu ứng viên</label>
-            <select value={selectedGroup} onChange={e => setSelectedGroup(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-700 outline-none focus:border-blue-500 bg-white cursor-pointer">
-              {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
-            </select>
-          </div>
-
-          {/* QR Display */}
-          <div className="flex flex-col items-center bg-slate-50 rounded-2xl p-4 border border-slate-100">
-            {generating ? (
-              <div className="w-[200px] h-[200px] flex items-center justify-center">
-                <Loader2 className="animate-spin text-slate-400" size={32} />
-              </div>
-            ) : qrDataUrl ? (
-              <>
-                <img src={qrDataUrl} alt="QR Code" className="w-[200px] h-[200px] rounded-xl" />
-                <p className="text-[11px] text-slate-500 mt-2 font-medium text-center">Quét mã để mở form ứng tuyển</p>
-              </>
-            ) : (
-              <div className="w-[200px] h-[200px] flex items-center justify-center text-slate-300">
-                <QrCode size={64} />
-              </div>
-            )}
-          </div>
-
-          {/* Form URL */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Link form trực tiếp</label>
-            <div className="flex gap-2">
-              <input readOnly value={formUrl}
-                className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-[11px] text-slate-600 bg-slate-50 outline-none min-w-0 truncate" />
-              <button onClick={copyUrl}
-                className="shrink-0 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-[11px] font-bold transition-all">
-                Copy
-              </button>
+          {!formGroup ? (
+            /* Chưa có nhóm phù hợp */
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+              <p className="text-amber-700 font-bold text-sm mb-1">Chưa tìm thấy nhóm phù hợp</p>
+              <p className="text-amber-600 text-[12px]">Vào <strong>Cấu hình → Nhóm</strong>, tạo nhóm có tên chứa <strong>"Thông tin ứng viên"</strong> hoặc <strong>"Điền theo Form"</strong> rồi quay lại đây.</p>
             </div>
-          </div>
+          ) : (
+            <>
+              {/* Nhóm đang dùng */}
+              <div className="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2.5 flex items-center gap-2">
+                <CheckCircle2 size={14} className="text-emerald-500 shrink-0" />
+                <div>
+                  <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-wider">Nhóm lưu ứng viên</p>
+                  <p className="text-sm font-black text-emerald-800">{formGroup.name}</p>
+                </div>
+              </div>
 
-          {/* Actions */}
-          <div className="flex gap-2">
-            <button onClick={downloadQR} disabled={!qrDataUrl}
-              className="flex-1 py-2.5 bg-gradient-to-r from-[#1a3a6b] to-[#1e4480] hover:opacity-90 disabled:opacity-40 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
-              <Download size={13} /> Tải QR về
-            </button>
-            <button onClick={() => window.open(formUrl, '_blank')}
-              className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
-              <ExternalLink size={13} /> Mở form
-            </button>
-          </div>
+              {/* QR */}
+              <div className="flex flex-col items-center bg-slate-50 rounded-2xl p-5 border border-slate-100">
+                {qrDataUrl ? (
+                  <>
+                    <img src={qrDataUrl} alt="QR Code" className="w-[220px] h-[220px] rounded-xl" />
+                    <p className="text-[11px] text-slate-500 mt-3 font-medium text-center">Quét mã để mở form ứng tuyển</p>
+                  </>
+                ) : (
+                  <div className="w-[220px] h-[220px] flex items-center justify-center">
+                    <Loader2 className="animate-spin text-slate-300" size={32} />
+                  </div>
+                )}
+              </div>
+
+              {/* Link */}
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">Hoặc chia sẻ link trực tiếp</label>
+                <div className="flex gap-2">
+                  <input readOnly value={formUrl}
+                    className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-[11px] text-slate-500 bg-slate-50 outline-none min-w-0 truncate" />
+                  <button onClick={copyUrl}
+                    className={`shrink-0 px-3 py-2 rounded-xl text-[11px] font-bold transition-all ${copied ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 hover:bg-slate-200 text-slate-600'}`}>
+                    {copied ? '✓ Đã copy' : 'Copy'}
+                  </button>
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2">
+                <button onClick={downloadQR} disabled={!qrDataUrl}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-[#1a3a6b] to-[#1e4480] hover:opacity-90 disabled:opacity-40 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
+                  <Download size={13} /> Tải QR về
+                </button>
+                <button onClick={() => window.open(formUrl, '_blank')}
+                  className="flex-1 py-2.5 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-[12px] font-bold transition-all flex items-center justify-center gap-1.5">
+                  <ExternalLink size={13} /> Mở form
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
