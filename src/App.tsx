@@ -90,6 +90,7 @@ const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
   desired_location: '',
   referral_date: '',
   send_bch_date: '',
+  interview_date: '',
   referrer: '',
   recruiter: '',
   tqt_interview: '',
@@ -799,7 +800,7 @@ function CandidateModal({
     e.preventDefault();
 
     const BULK_FIELDS: (keyof Candidate)[] = [
-      'referral_date', 'full_name', 'send_bch_date', 'birth_year', 'phone', 
+      'referral_date', 'send_bch_date', 'interview_date', 'full_name', 'birth_year', 'phone', 
       'experience', 'position', 'desired_location', 'referrer', 'recruiter', 
       'tqt_interview', 'recruitment_status', 'notes'
     ];
@@ -826,7 +827,7 @@ function CandidateModal({
           if (fieldIdx < BULK_FIELDS.length) {
             const fieldKey = BULK_FIELDS[fieldIdx];
             let val = cellVal.trim();
-            if (fieldKey === 'referral_date' || fieldKey === 'send_bch_date') {
+            if (fieldKey === 'referral_date' || fieldKey === 'send_bch_date' || fieldKey === 'interview_date') {
               val = formatDateInput(val);
             }
             row[fieldKey] = val as any;
@@ -926,9 +927,9 @@ function CandidateModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-4 gap-4">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày giới thiệu</label>
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Ngày giới thiệu</label>
                 <input 
                   type="date"
                   value={convertToYYYYMMDD(form.referral_date)} 
@@ -946,7 +947,7 @@ function CandidateModal({
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày gửi BCH/ Phòng Nhân sự</label>
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Ngày gửi BCH/ Phòng Nhân sự</label>
                 <input 
                   type="date"
                   value={convertToYYYYMMDD(form.send_bch_date)} 
@@ -964,7 +965,25 @@ function CandidateModal({
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Người giới thiệu</label>
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Ngày phỏng vấn</label>
+                <input 
+                  type="date"
+                  value={convertToYYYYMMDD(form.interview_date)} 
+                  onChange={e => set('interview_date', convertToDDMMYYYY(e.target.value))}
+                  onClick={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onFocus={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onKeyDown={e => {
+                    e.preventDefault();
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Người giới thiệu</label>
                 <select 
                   value={form.referrer || ''} 
                   onChange={e => set('referrer', e.target.value)}
@@ -1155,6 +1174,7 @@ function CandidateModal({
                   <th style={{ width: 50 }}>STT</th>
                   <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
                   <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
+                  <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày phỏng vấn</th>
                   <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                   <th style={{ width: 80 }}>Năm sinh</th>
                   <th style={{ width: 120 }}>SĐT</th>
@@ -1207,6 +1227,24 @@ function CandidateModal({
                           try { e.currentTarget.showPicker(); } catch (err) {}
                         }}
                         data-field="send_bch_date" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
+                    </td>
+                    <td className="p-1 border-r border-slate-300" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>
+                      <input 
+                        type="date"
+                        value={convertToYYYYMMDD(row.interview_date)} 
+                        onChange={e => updateRow(idx, 'interview_date', convertToDDMMYYYY(e.target.value))}
+                        onClick={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onFocus={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onKeyDown={e => {
+                          e.preventDefault();
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        data-field="interview_date" data-row-idx={idx}
                         className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
                     </td>
                     <td className="p-1 border-r border-slate-300">
@@ -2968,6 +3006,7 @@ export default function App() {
         { header: 'STT', key: 'stt', width: 6 },
         { header: 'Ngày giới thiệu', key: 'referral_date', width: 15 },
         { header: 'Ngày gửi BCH/ Phòng Nhân sự', key: 'send_bch_date', width: 20 },
+        { header: 'Ngày phỏng vấn', key: 'interview_date', width: 15 },
         { header: 'Tên ứng viên', key: 'full_name', width: 25 },
         { header: 'Năm sinh', key: 'birth_year', width: 10 },
         { header: 'SĐT', key: 'phone', width: 15 },
@@ -3029,7 +3068,7 @@ export default function App() {
           });
           
           // Merge cells for group header
-          worksheet.mergeCells(`B${groupRow.number}:O${groupRow.number}`);
+          worksheet.mergeCells(`B${groupRow.number}:P${groupRow.number}`);
           
           groupRow.height = 28;
           groupRow.eachCell((cell) => {
@@ -3056,8 +3095,9 @@ export default function App() {
         const rowData = {
           stt: sttInGroup,
           referral_date: formatReferralDate(c.referral_date),
-          full_name: c.full_name || '',
           send_bch_date: formatReferralDate(c.send_bch_date),
+          interview_date: formatReferralDate(c.interview_date),
+          full_name: c.full_name || '',
           birth_year: c.birth_year || '',
           phone: c.phone || '',
           experience: c.experience || '',
@@ -3083,23 +3123,23 @@ export default function App() {
             right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
           };
 
-          if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 5 || colNumber === 6 || colNumber === 13 || colNumber === 14) { // STT, Ngày giới thiệu, Ngày gửi BCH, Năm sinh, SĐT, Tình trạng, CV
+          if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 4 || colNumber === 6 || colNumber === 7 || colNumber === 14 || colNumber === 15) { // STT, Ngày giới thiệu, Ngày gửi BCH, Ngày phỏng vấn, Năm sinh, SĐT, Tình trạng, CV
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
           }
           
           if (colNumber === 1) { // STT
             cell.font = { bold: true, color: { argb: 'FF1E40AF' } };
           }
-          if (colNumber === 4) { // Tên ứng viên
+          if (colNumber === 5) { // Tên ứng viên
             cell.font = { bold: true, color: { argb: 'FF1E293B' } };
           }
-          if (colNumber === 14 && c.cv_url) { // CV Ứng viên
+          if (colNumber === 15 && c.cv_url) { // CV Ứng viên
             cell.value = { text: 'Xem CV', hyperlink: c.cv_url };
             cell.font = { size: 11, name: 'Arial', color: { argb: 'FF2563EB' }, underline: true };
           }
 
           // Style status cell
-          if (colNumber === 13 && c.recruitment_status) {
+          if (colNumber === 14 && c.recruitment_status) {
             const dbColor = statuses.find(s => s.name === c.recruitment_status)?.color_bg;
             const rawColor = dbColor || getAutoBgColor(c.recruitment_status);
             // Normalize hex: expand 3-digit (#abc -> #aabbcc) and strip #
@@ -3107,9 +3147,9 @@ export default function App() {
             if (hex.length === 3) hex = hex.split('').map(c => c + c).join('');
             const hexColor = hex.toUpperCase().padEnd(6, '0').slice(0, 6);
             cell.fill = {
-              type: 'pattern',
-              pattern: 'solid',
-              fgColor: { argb: 'FF' + hexColor }
+               type: 'pattern',
+               pattern: 'solid',
+               fgColor: { argb: 'FF' + hexColor }
             };
             cell.font = { bold: true, color: { argb: 'FF000000' }, size: 10 };
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
@@ -3486,6 +3526,7 @@ export default function App() {
                           <th style={{ width: 50 }}>STT</th>
                           <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
                           <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
+                          <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày phỏng vấn</th>
                           <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                           <th style={{ width: 80 }}>Năm sinh</th>
                           <th style={{ width: 120 }}>SĐT</th>
@@ -3532,7 +3573,7 @@ export default function App() {
                                         {toRoman(groupIndex)}
                                       </span>
                                     </td>
-                                    <td colSpan={15} style={{ color: color.text }} className="py-2.5 px-4 font-black text-sm uppercase tracking-tight">
+                                    <td colSpan={16} style={{ color: color.text }} className="py-2.5 px-4 font-black text-sm uppercase tracking-tight">
                                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, display: 'inline-block', flexShrink: 0 }} />
                                         {groupName}
@@ -3540,10 +3581,16 @@ export default function App() {
                                     </td>
                                   </tr>
                                 )}
-                                <tr style={hl?.key ? { background: hl.bg, color: hl.text } : {}}>
+                                <tr 
+                                  style={hl?.key ? { background: hl.bg, color: hl.text } : {}}
+                                  onDoubleClick={() => setModal({ type: 'edit', candidate: { ...c } })}
+                                  className="cursor-pointer select-none hover:bg-black/5"
+                                  title="Nhấp đúp chuột để chỉnh sửa thông tin ứng viên"
+                                >
                                   <td className="text-center font-bold text-blue-700 text-xs">{(c as any).sttInGroup}</td>
                                   <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.referral_date)}</td>
                                   <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.send_bch_date)}</td>
+                                  <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.interview_date)}</td>
                                   <td className="font-semibold">{c.full_name}</td>
                                   <td className="text-center">{c.birth_year}</td>
                                   <td className="text-center">{c.phone}</td>
@@ -3575,7 +3622,7 @@ export default function App() {
                                       <span className="text-slate-300 text-[11px] italic">Chưa có CV</span>
                                     )}
                                   </td>
-                                  <td className="text-xs text-slate-500 italic">{c.notes}</td>
+                                  <td className="text-xs text-slate-800 font-medium" style={{ whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 200 }}>{c.notes}</td>
                                   <td>
                                     <div className="flex items-center justify-center gap-1">
                                       <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}

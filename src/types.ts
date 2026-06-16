@@ -40,6 +40,7 @@ export interface Candidate {
   referral_date?: string; // Ngày giới thiệu
   referrer?: string;      // Người giới thiệu
   send_bch_date?: string; // Ngày gửi BCH/ Phòng Nhân sự
+  interview_date?: string; // Ngày phỏng vấn
   ptd_received?: boolean; // PTD nhận HS giới thiệu
   ptd_received_date?: string; // Ngày PTD nhận HS
   recruiter?: string;     // NS P.TD nhận
