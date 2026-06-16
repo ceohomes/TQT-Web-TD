@@ -39,12 +39,15 @@ export interface Candidate {
   desired_location?: string; // Địa điểm mong muốn làm việc
   referral_date?: string; // Ngày giới thiệu
   referrer?: string;      // Người giới thiệu
+  send_bch_date?: string; // Ngày gửi BCH/ Phòng Nhân sự
   ptd_received?: boolean; // PTD nhận HS giới thiệu
   ptd_received_date?: string; // Ngày PTD nhận HS
   recruiter?: string;     // NS P.TD nhận
   recruitment_status?: string; // Tình trạng tuyển dụng
+  tqt_interview?: string;     // TQT Phỏng vấn
   highlight_color?: string; // Màu highlight (green, blue, yellow, red, orange)
   notes?: string;         // Ghi chú
+  cv_url?: string;        // Đường dẫn CV / link file PDF
   created_at?: string;
   updated_at?: string;
 }

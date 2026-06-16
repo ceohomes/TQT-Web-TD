@@ -35,6 +35,28 @@ const toRoman = (num: number) => {
   return result;
 };
 
+const isLinkValid = (url: any): boolean => {
+  if (!url) return false;
+  const str = String(url).trim();
+  if (
+    str === '' || 
+    str.toLowerCase() === 'chưa có cv' || 
+    str.toLowerCase() === 'null' || 
+    str.toLowerCase() === 'undefined'
+  ) {
+    return false;
+  }
+  return true;
+};
+
+const formatLinkCV = (url: string): string => {
+  const trimmed = url.trim();
+  if (/^https?:\/\//i.test(trimmed)) {
+    return trimmed;
+  }
+  return `https://${trimmed}`;
+};
+
 const HIGHLIGHT_COLORS: { key: string; label: string; bg: string; text: string; border: string }[] = [
   { key: '', label: 'Mặc định', bg: '', text: '', border: '' },
   { key: 'green', label: 'Xanh lá (Đang làm)', bg: '#bbf7d0', text: '#14532d', border: '#86efac' },
@@ -67,11 +89,14 @@ const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
   position: '',
   desired_location: '',
   referral_date: '',
+  send_bch_date: '',
   referrer: '',
   recruiter: '',
+  tqt_interview: '',
   recruitment_status: '',
   highlight_color: '',
   notes: '',
+  cv_url: '',
 };
 
 // ─── Toast Component ──────────────────────────────────────────────────────────
@@ -101,13 +126,43 @@ function SettingsModal({ onClose, onSave }: {
   onClose: () => void;
   onSave: (url: string, key: string) => void;
 }) {
+  const [activeTab, setActiveTab] = useState<'supabase' | 'github'>('supabase');
+
+  // Supabase state
   const [url, setUrl] = useState(localStorage.getItem('sb_url') || '');
   const [key, setKey] = useState(localStorage.getItem('sb_key') || '');
   const [showKey, setShowKey] = useState(false);
+
+  // GitHub state
+  const [ghToken, setGhToken] = useState(() => {
+    return localStorage.getItem('gh_token') || import.meta.env.VITE_GITHUB_TOKEN || '';
+  });
+  const [ghOwner, setGhOwner] = useState(() => {
+    const localOwner = localStorage.getItem('gh_owner');
+    if (localOwner) return localOwner;
+    const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+    if (envRepo && envRepo.includes('/')) {
+      return envRepo.split('/')[0]?.trim() || '';
+    }
+    return '';
+  });
+  const [ghRepo, setGhRepo] = useState(() => {
+    const localRepo = localStorage.getItem('gh_repo');
+    if (localRepo) return localRepo;
+    const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+    if (envRepo && envRepo.includes('/')) {
+      return envRepo.split('/')[1]?.trim() || '';
+    }
+    return envRepo || '';
+  });
+  const [ghBranch, setGhBranch] = useState(localStorage.getItem('gh_branch') || 'main');
+  const [ghPath, setGhPath] = useState(localStorage.getItem('gh_path') || 'cvs');
+  const [showGhToken, setShowGhToken] = useState(false);
+
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const validateInputs = () => {
+  const validateSupabase = () => {
     const u = url.trim();
     const k = key.trim();
     if (!u) return 'Vui lòng nhập Supabase Project URL';
@@ -118,8 +173,8 @@ function SettingsModal({ onClose, onSave }: {
     return null;
   };
 
-  const handleTest = async () => {
-    const err = validateInputs();
+  const handleTestSupabase = async () => {
+    const err = validateSupabase();
     if (err) { setTestResult({ ok: false, msg: err }); return; }
     setTesting(true);
     setTestResult(null);
@@ -145,9 +200,94 @@ function SettingsModal({ onClose, onSave }: {
     }
   };
 
+  const handleTestGithub = async () => {
+    const token = ghToken.trim();
+    const owner = ghOwner.trim();
+    const repo = ghRepo.trim();
+    if (!token || !owner || !repo) {
+      setTestResult({ ok: false, msg: '⚠️ Vui lòng nhập đủ Token, Tài khoản và Tên kho!' });
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      // Chuẩn hóa token: loại bỏ các tiền tố "token" hoặc "bearer" nếu người dùng copy nhầm
+      const cleanToken = token.replace(/^(token|bearer)\s+/i, '').trim();
+      
+      let res = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+        headers: {
+          'Authorization': `Bearer ${cleanToken}`,
+          'Accept': 'application/vnd.github.v3+json'
+        }
+      });
+
+      // Nếu 401 với Bearer, thử fallback sang kiểu 'token <token>' cho PAT classic
+      if (res.status === 401) {
+        const fallbackRes = await fetch(`https://api.github.com/repos/${owner}/${repo}`, {
+          headers: {
+            'Authorization': `token ${cleanToken}`,
+            'Accept': 'application/vnd.github.v3+json'
+          }
+        });
+        if (fallbackRes.ok || fallbackRes.status !== 401) {
+          res = fallbackRes;
+        }
+      }
+      
+      if (res.ok) {
+        setTestResult({ ok: true, msg: '✅ Kết nối GitHub thành công! Kho tồn tại và Token có quyền thao tác.' });
+      } else {
+        const data = await res.json();
+        let customMsg = `❌ Lỗi kết nối GitHub (Mã lỗi ${res.status}): ${data.message || 'Không thể xác thực'}`;
+        
+        if (res.status === 401) {
+          customMsg = `❌ Lỗi 401: Sai Token (Bad credentials)
+
+👉 NGUYÊN NHÂN CHÍNH:
+1. Token này đã HẾT HẠN hoặc bị THU HỒI trên GitHub.
+   • LƯU Ý: GitHub tự động quét và thu hồi (hủy bỏ) token NGAY LẬP TỨC nếu nó bị lộ qua ảnh chụp màn hình, đoạn chat công khai hoặc file code public. Do bạn đã gửi ảnh chụp màn hình có chứa mã token này, khả năng cực kỳ cao là GitHub đã phát hiện và tự động vô hiệu hóa token này để bảo mật!
+   • Hãy vào github.com -> Settings -> Developer Settings -> Personal Access Tokens (classic) để tạo một token mới hoàn chỉnh.
+2. Token bị thiếu quyền 'repo' (thao tác với kho lưu trữ).
+3. Bạn đang nhập MẬT KHẨU tài khoản GitHub cá nhân thay vì Personal Access Token (PAT). GitHub bắt buộc dùng PAT!`;
+        } else if (res.status === 404) {
+          customMsg = `❌ Lỗi 404: Không tìm thấy Kho lưu trữ (Not Found)
+
+👉 NGUYÊN NHÂN PHỔ BIẾN:
+1. Viết sai chính tả Tên tài khoản ("${owner}") hoặc Tên kho ("${repo}"). Lưu ý: Hai trường này có phân biệt chữ HOA và chữ thường chính xác tuyệt đối.
+2. Kho lưu trữ đang ở chế độ Riêng tư (Private) nhưng Token của bạn không có đủ quyền 'repo' để xem kho đó.
+
+💡 Cách khắc phục: Kiểm tra lại tên kho trên GitHub (Ví dụ link là github.com/ceohomes/CV-TQT thì Tài khoản là: "ceohomes", Tên kho là: "CV-TQT").`;
+        }
+        
+        setTestResult({ ok: false, msg: customMsg });
+      }
+    } catch (e: any) {
+      setTestResult({ ok: false, msg: `❌ Không thể kiểm tra: Do lỗi mạng hoặc thiết lập CORS chặn yêu cầu: ${e?.message || 'Lỗi mạng'}` });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   const handleSaveClick = () => {
-    const err = validateInputs();
-    if (err) { setTestResult({ ok: false, msg: err }); return; }
+    // 1. Luôn lưu cấu hình GitHub
+    localStorage.setItem('gh_token', ghToken.trim());
+    localStorage.setItem('gh_owner', ghOwner.trim());
+    localStorage.setItem('gh_repo', ghRepo.trim());
+    localStorage.setItem('gh_branch', ghBranch.trim() || 'main');
+    localStorage.setItem('gh_path', ghPath.trim() || 'cvs');
+
+    // 2. Kiểm tra nếu có nhập Supabase thì validate
+    const u = url.trim();
+    const k = key.trim();
+    if (u || k) {
+      const err = validateSupabase();
+      if (err) {
+        setActiveTab('supabase');
+        setTestResult({ ok: false, msg: err });
+        return;
+      }
+    }
+    
     onSave(url, key);
   };
 
@@ -158,69 +298,203 @@ function SettingsModal({ onClose, onSave }: {
           <div className="flex items-center gap-3">
             <div className="p-2 bg-white/10 rounded-xl"><Settings size={18} className="text-sky-300" /></div>
             <div>
-              <h3 className="text-white font-black text-base uppercase tracking-tight">Cấu hình Supabase</h3>
-              <p className="text-blue-300 text-xs mt-0.5">Điền thông tin kết nối database</p>
+              <h3 className="text-white font-black text-base uppercase tracking-tight">Cấu hình Hệ thống</h3>
+              <p className="text-blue-300 text-xs mt-0.5">Quản lý database & kho lưu trữ CV ứng viên</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 text-blue-300 hover:text-white transition-colors"><X size={18} /></button>
         </div>
-        <div className="p-7 space-y-5">
-          <div>
-            <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Supabase Project URL</label>
-            <input
-              type="text"
-              value={url}
-              onChange={e => { setUrl(e.target.value); setTestResult(null); }}
-              placeholder="https://abcdefghij.supabase.co"
-              className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all"
-            />
-            <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → Project URL</p>
-          </div>
-          <div>
-            <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Anon Key (public)</label>
-            <div className="relative">
-              <input
-                type={showKey ? 'text' : 'password'}
-                value={key}
-                onChange={e => { setKey(e.target.value); setTestResult(null); }}
-                placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
-                className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 pr-12 text-sm font-medium outline-none focus:border-sky-400 transition-all"
-              />
-              <button onClick={() => setShowKey(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-300 hover:text-white transition-colors">
-                {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
-              </button>
-            </div>
-            <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → anon public</p>
-          </div>
 
-          {/* Test result */}
+        {/* Tab Selector */}
+        <div className="flex border-b border-blue-800 bg-black/10">
+          <button
+            type="button"
+            onClick={() => { setActiveTab('supabase'); setTestResult(null); }}
+            className={cn(
+              "flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 text-center",
+              activeTab === 'supabase' ? "border-sky-400 text-sky-300 bg-white/5" : "border-transparent text-blue-300/70 hover:text-white"
+            )}
+          >
+            ⚙️ Database Supabase
+          </button>
+          <button
+            type="button"
+            onClick={() => { setActiveTab('github'); setTestResult(null); }}
+            className={cn(
+              "flex-1 py-3 text-xs font-black uppercase tracking-widest transition-all border-b-2 text-center",
+              activeTab === 'github' ? "border-sky-400 text-sky-300 bg-white/5" : "border-transparent text-blue-300/70 hover:text-white"
+            )}
+          >
+            📂 Storage GitHub (Lưu CV)
+          </button>
+        </div>
+
+        <div className="p-7 space-y-5">
+          {activeTab === 'supabase' && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Supabase Project URL</label>
+                <input
+                  type="text"
+                  value={url}
+                  onChange={e => { setUrl(e.target.value); setTestResult(null); }}
+                  placeholder="https://abcdefghij.supabase.co"
+                  className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                />
+                <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → Project URL</p>
+              </div>
+              <div>
+                <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-2">Anon Key (public)</label>
+                <div className="relative">
+                  <input
+                    type={showKey ? 'text' : 'password'}
+                    value={key}
+                    onChange={e => { setKey(e.target.value); setTestResult(null); }}
+                    placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 pr-12 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                  />
+                  <button type="button" onClick={() => setShowKey(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-300 hover:text-white transition-colors">
+                    {showKey ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Lấy từ: Supabase → Project Settings → API → anon public</p>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1.5">
+                <p className="font-black text-white text-[11px] uppercase tracking-widest mb-1.5">📋 Hướng dẫn lấy thông tin Supabase:</p>
+                <p>1. Đăng nhập <span className="text-sky-300 font-semibold font-sans">supabase.com</span> → chọn Project</p>
+                <p>2. Vào <span className="text-sky-300 font-semibold font-sans">Project Settings → API</span></p>
+                <p>3. Copy <span className="text-sky-300 font-semibold font-sans">Project URL</span> và <span className="text-sky-300 font-semibold">anon public</span> key</p>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'github' && (
+            <div className="space-y-4">
+              <div>
+                <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-1">GitHub Personal Access Token (PAT)</label>
+                <div className="relative">
+                  <input
+                    type={showGhToken ? 'text' : 'password'}
+                    value={ghToken}
+                    onChange={e => { setGhToken(e.target.value); setTestResult(null); }}
+                    placeholder="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 pr-12 text-sm font-medium outline-none focus:border-sky-400 transition-all font-mono"
+                  />
+                  <button type="button" onClick={() => setShowGhToken(p => !p)} className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-300 hover:text-white transition-colors">
+                    {showGhToken ? <EyeOff size={16} /> : <Eye size={16} />}
+                  </button>
+                </div>
+                <p className="text-blue-300/60 text-[10px] mt-1 ml-1">Token có quyền ghi (write) cho kho lưu trữ của bạn</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-1">GitHub Tài khoản</label>
+                  <input
+                    type="text"
+                    value={ghOwner}
+                    onChange={e => { setGhOwner(e.target.value); setTestResult(null); }}
+                    placeholder="Ví dụ: congchung0992"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                  />
+                </div>
+                <div>
+                  <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-1">Tên repository (Tên kho)</label>
+                  <input
+                    type="text"
+                    value={ghRepo}
+                    onChange={e => { setGhRepo(e.target.value); setTestResult(null); }}
+                    placeholder="Ví dụ: candidates-cv"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-1">Nhánh (Branch)</label>
+                  <input
+                    type="text"
+                    value={ghBranch}
+                    onChange={e => { setGhBranch(e.target.value); setTestResult(null); }}
+                    placeholder="mặc định: main"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                  />
+                </div>
+                <div>
+                  <label className="text-blue-200 text-xs font-bold uppercase tracking-widest block mb-1">Thư mục lưu (Folder)</label>
+                  <input
+                    type="text"
+                    value={ghPath}
+                    onChange={e => { setGhPath(e.target.value); setTestResult(null); }}
+                    placeholder="mặc định: cvs"
+                    className="w-full bg-white/10 border border-white/20 text-white placeholder-white/30 rounded-xl px-4 py-3 text-sm font-medium outline-none focus:border-sky-400 transition-all font-sans"
+                  />
+                </div>
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1.5 font-sans">
+                <p className="font-semibold text-white text-[11px] uppercase tracking-widest mb-1.5">🔌 Cấu hình từ Cloudflare (Dưới nền):</p>
+                <div className="space-y-1 text-[11px]">
+                  <div className="flex justify-between border-b border-white/5 pb-1">
+                    <span>Token từ Cloudflare:</span>
+                    {import.meta.env.VITE_GITHUB_TOKEN ? (
+                      <span className="text-emerald-400 font-bold">✅ Đã tải thành công</span>
+                    ) : (
+                      <span className="text-amber-400 font-semibold">Chưa có (hãy dán trực tiếp để test)</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between pt-1">
+                    <span>Tên Repo từ Cloudflare:</span>
+                    {import.meta.env.VITE_GITHUB_REPO ? (
+                      <span className="text-emerald-400 font-bold">✅ {import.meta.env.VITE_GITHUB_REPO}</span>
+                    ) : (
+                      <span className="text-amber-400 font-semibold">Chưa có (hãy dán trực tiếp để test)</span>
+                    )}
+                  </div>
+                </div>
+                {!import.meta.env.VITE_GITHUB_TOKEN && (
+                  <p className="text-amber-200/80 text-[10px] mt-2 leading-relaxed bg-amber-500/10 p-2 rounded border border-amber-500/20">
+                    💡 <b>MÔI TRƯỜNG KIỂM THỬ (AIS Preview)</b>: Do đây là cửa sổ thử nghiệm của AI Studio, app không có quyền truy cập vào biến môi trường của Cloudflare của bạn. Bạn hãy dán trực tiếp Token và Tên tài khoản, Repo vào các ô phía trên rổi bấm Lưu để test ngay nhé!
+                  </p>
+                )}
+              </div>
+
+              <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1.5 font-sans">
+                <p className="font-black text-white text-[11px] uppercase tracking-widest mb-1.5">📋 Hướng dẫn tạo Kho lưu trữ GitHub:</p>
+                <p>1. Đăng nhập <span className="text-sky-300 font-semibold font-sans">github.com</span> &rarr; tạo repository mới ở chế độ <b>Public</b> để lấy link xem PDF trực tiếp dễ dàng.</p>
+                <p>2. Vào <span className="text-sky-300 font-semibold font-sans">Settings &rarr; Developer Settings &rarr; Personal access tokens &rarr; Tokens (classic)</span>.</p>
+                <p>3. Tạo token mới (Generate new token) tích chọn quyền <span className="text-sky-300 font-semibold font-sans font-sans">repo</span>.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Test result display */}
           {testResult && (
             <div className={cn(
-              'rounded-xl px-4 py-3 text-sm font-semibold',
+              'rounded-xl px-4 py-3 text-sm font-semibold whitespace-pre-line',
               testResult.ok ? 'bg-emerald-900/50 text-emerald-300 border border-emerald-700' : 'bg-red-900/50 text-red-300 border border-red-700'
             )}>
               {testResult.msg}
             </div>
           )}
 
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-blue-200 space-y-1.5">
-            <p className="font-black text-white text-[11px] uppercase tracking-widest mb-2">📋 Hướng dẫn lấy thông tin:</p>
-            <p>1. Đăng nhập <span className="text-sky-300 font-semibold">supabase.com</span> → chọn Project</p>
-            <p>2. Vào <span className="text-sky-300 font-semibold">Project Settings → API</span></p>
-            <p>3. Copy <span className="text-sky-300 font-semibold">Project URL</span> (dạng https://xxx.supabase.co)</p>
-            <p>4. Copy <span className="text-sky-300 font-semibold">anon public</span> key (bắt đầu bằng eyJ...)</p>
-          </div>
-
           <div className="flex gap-3">
             <button onClick={onClose} className="px-4 py-3 rounded-xl border border-white/20 text-white/60 hover:text-white hover:border-white/40 font-bold text-sm transition-all">Hủy</button>
-            <button onClick={handleTest} disabled={testing}
-              className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+            <button
+              onClick={activeTab === 'supabase' ? handleTestSupabase : handleTestGithub}
+              disabled={testing}
+              className="flex-1 py-3 rounded-xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-bold text-sm transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+            >
               {testing ? <Loader2 size={14} className="animate-spin" /> : null}
-              {testing ? 'Đang kiểm tra...' : '🔍 Kiểm tra kết nối'}
+              {testing ? 'Đang kiểm tra...' : '🔍 Thử kết nối'}
             </button>
-            <button onClick={handleSaveClick}
-              className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black text-sm transition-all shadow-lg">
-              Lưu & Kết nối
+            <button
+              onClick={handleSaveClick}
+              className="flex-1 py-3 rounded-xl bg-orange-500 hover:bg-orange-600 text-white font-black text-sm transition-all shadow-lg text-center"
+            >
+              Lưu cấu hình
             </button>
           </div>
         </div>
@@ -231,7 +505,65 @@ function SettingsModal({ onClose, onSave }: {
 
 // ─── Candidate Form Modal ─────────────────────────────────────────────────────
 
+const formatReferralDate = (dateStr?: string): string => {
+  if (!dateStr) return '';
+  const trimmed = dateStr.trim();
+  if (!trimmed) return '';
+  
+  // Try splitting by '/'
+  let parts = trimmed.split('/');
+  if (parts.length === 3) {
+    const d = parts[0].padStart(2, '0');
+    const m = parts[1].padStart(2, '0');
+    const y = parts[2];
+    return `${d}/${m}/${y}`;
+  }
+  
+  // Try splitting by '-'
+  parts = trimmed.split('-');
+  if (parts.length === 3) {
+    // Check if it's yyyy-mm-dd
+    if (parts[0].length === 4) {
+      const [y, m, d] = parts;
+      return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+    } else {
+      // Assume dd-mm-yyyy
+      const [d, m, y] = parts;
+      return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+    }
+  }
+
+  // Fallback to trying to parse as a Date
+  try {
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${day}/${month}/${year}`;
+    }
+  } catch (e) {}
+
+  return trimmed;
+};
+
 const formatDateInput = (value: string) => {
+  if (!value) return '';
+  
+  // If the value contains slashes or dashes and has parts, try to normalize it (e.g. pasted strings like "4/6/2026")
+  if (value.includes('/') || value.includes('-')) {
+    const sep = value.includes('/') ? '/' : '-';
+    const parts = value.split(sep);
+    if (parts.length === 3) {
+      const d = parts[0].trim().padStart(2, '0');
+      const m = parts[1].trim().padStart(2, '0');
+      const y = parts[2].trim();
+      if (d.length <= 2 && m.length <= 2 && (y.length === 4 || y.length === 2)) {
+        return `${d}/${m}/${y}`;
+      }
+    }
+  }
+
   // Remove all non-digit characters
   const digits = value.replace(/\D/g, '');
   
@@ -245,6 +577,53 @@ const formatDateInput = (value: string) => {
   }
 };
 
+const convertToYYYYMMDD = (dateStr?: string): string => {
+  if (!dateStr) return '';
+  const trimmed = dateStr.trim();
+  if (!trimmed) return '';
+  
+  // Check if it's already yyyy-mm-dd
+  const partsDash = trimmed.split('-');
+  if (partsDash.length === 3 && partsDash[0].length === 4) {
+    return trimmed;
+  }
+
+  // Try dd/mm/yyyy
+  const partsSlash = trimmed.split('/');
+  if (partsSlash.length === 3) {
+    const [d, m, y] = partsSlash;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  
+  // Try dd-mm-yyyy
+  if (partsDash.length === 3) {
+    const [d, m, y] = partsDash;
+    return `${y}-${m.padStart(2, '0')}-${d.padStart(2, '0')}`;
+  }
+  
+  try {
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      const day = String(d.getDate()).padStart(2, '0');
+      const month = String(d.getMonth() + 1).padStart(2, '0');
+      const year = d.getFullYear();
+      return `${year}-${month}-${day}`;
+    }
+  } catch (e) {}
+  
+  return '';
+};
+
+const convertToDDMMYYYY = (yyyyMMDD: string): string => {
+  if (!yyyyMMDD) return '';
+  const parts = yyyyMMDD.split('-');
+  if (parts.length === 3) {
+    const [y, m, d] = parts;
+    return `${d.padStart(2, '0')}/${m.padStart(2, '0')}/${y}`;
+  }
+  return yyyyMMDD;
+};
+
 const isValidPhone = (phone: string) => {
   if (!phone) return true;
   const cleanPhone = phone.replace(/\s/g, '');
@@ -252,7 +631,7 @@ const isValidPhone = (phone: string) => {
 };
 
 function CandidateModal({
-  candidate, onClose, onSave, mode, groups, statuses, referrers, recruiters
+  candidate, onClose, onSave, mode, groups, statuses, referrers, recruiters, onViewCV
 }: {
   candidate: Partial<Candidate>;
   onClose: () => void;
@@ -262,6 +641,7 @@ function CandidateModal({
   statuses: RecruitmentStatus[];
   referrers: Referrer[];
   recruiters: Recruiter[];
+  onViewCV?: (url: string, name: string) => void;
 }) {
   const [rows, setRows] = useState<Partial<Candidate>[]>(
     mode === 'add' ? [candidate] : [candidate]
@@ -270,6 +650,133 @@ function CandidateModal({
   // For single edit mode
   const [form, setForm] = useState<Partial<Candidate>>(candidate);
   const set = (key: keyof Candidate, val: any) => setForm(p => ({ ...p, [key]: val }));
+
+  const [cvUploading, setCvUploading] = useState(false);
+  const cvFileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleCVUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.type !== 'application/pdf') {
+      alert('Vui lòng chọn file định dạng PDF (.pdf)');
+      return;
+    }
+
+    setCvUploading(true);
+    try {
+      let ghToken = localStorage.getItem('gh_token') || import.meta.env.VITE_GITHUB_TOKEN || '';
+      let ghOwner = localStorage.getItem('gh_owner') || '';
+      let ghRepo = localStorage.getItem('gh_repo') || '';
+
+      const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+      if (envRepo && envRepo.includes('/')) {
+        const parts = envRepo.split('/');
+        if (!ghOwner) ghOwner = parts[0]?.trim();
+        if (!ghRepo) ghRepo = parts[1]?.trim();
+      } else if (envRepo) {
+        ghRepo = envRepo;
+      }
+
+      const ghBranch = localStorage.getItem('gh_branch') || 'main';
+      const ghPath = localStorage.getItem('gh_path') || 'cvs';
+
+      const safeName = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+
+      // 1. Check if GitHub is configured
+      if (ghToken && ghOwner && ghRepo) {
+        // Convert to Base64
+        const base64Content = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.readAsDataURL(file);
+          reader.onload = () => {
+            const base64 = (reader.result as string).split(',')[1];
+            resolve(base64);
+          };
+          reader.onerror = err => reject(err);
+        });
+
+        const finalPath = ghPath ? `${ghPath}/${safeName}` : safeName;
+        const uploadUrl = `https://api.github.com/repos/${ghOwner}/${ghRepo}/contents/${finalPath}`;
+
+        // Chuẩn hóa token
+        const cleanToken = ghToken.trim().replace(/^(token|bearer)\s+/i, '').trim();
+
+        let response = await fetch(uploadUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Bearer ${cleanToken}`,
+            'Content-Type': 'application/json',
+            'Accept': 'application/vnd.github.v3+json',
+          },
+          body: JSON.stringify({
+            message: `Upload CV: ${file.name} - ${new Date().toLocaleString('vi-VN')}`,
+            content: base64Content,
+            branch: ghBranch
+          }),
+        });
+
+        // Nếu 401 với Bearer, thử fallback sang kiểu 'token <token>' cho PAT classic
+        if (response.status === 401) {
+          const fallbackResponse = await fetch(uploadUrl, {
+            method: 'PUT',
+            headers: {
+              'Authorization': `token ${cleanToken}`,
+              'Content-Type': 'application/json',
+              'Accept': 'application/vnd.github.v3+json',
+            },
+            body: JSON.stringify({
+              message: `Upload CV: ${file.name} - ${new Date().toLocaleString('vi-VN')}`,
+              content: base64Content,
+              branch: ghBranch
+            }),
+          });
+          if (fallbackResponse.ok || fallbackResponse.status !== 401) {
+            response = fallbackResponse;
+          }
+        }
+
+        if (!response.ok) {
+          const errData = await response.json();
+          let customMsg = errData.message || 'Lỗi tải lên kho';
+          
+          if (response.status === 401) {
+            customMsg = `Lỗi 401: Sai Token (Bad Credentials). Token này có thể đã hết hạn, hoặc bị GitHub tự động THU HỒI/HỦY BỎ do bị lộ trong ảnh chụp màn hình / chat công khai! Hãy tạo một token mới nhé.`;
+          } else if (response.status === 404) {
+            customMsg = `Lỗi 404: Không tìm thấy Kho lưu trữ "${ghRepo}" thuộc tài khoản "${ghOwner}". Hãy kiểm tra chính tả chữ Hoa/thường hoặc chế độ Public/Private của kho!`;
+          }
+          throw new Error(`GitHub API: ${customMsg}`);
+        }
+
+        // Successfully uploaded to GitHub. Compute public URL to raw file.
+        const publicUrl = `https://raw.githubusercontent.com/${ghOwner}/${ghRepo}/${ghBranch}/${finalPath}`;
+        set('cv_url', publicUrl);
+        alert('🎉 Đã tự động lưu CV thành công vào kho GitHub của bạn!');
+      } 
+      // 2. Fallback to Supabase
+      else if (supabaseInit) {
+        const storagePath = `cv/${safeName}`;
+        const { error: uploadError } = await supabaseInit.storage.from('documents').upload(storagePath, file, { upsert: false });
+        if (uploadError) throw uploadError;
+
+        const { data: urlData } = supabaseInit.storage.from('documents').getPublicUrl(storagePath);
+        const publicUrl = urlData?.publicUrl || '';
+        if (publicUrl) {
+          set('cv_url', publicUrl);
+          alert('⚠️ Hệ thống chưa nhận được cấu hình GitHub từ Cloudflare hoặc từ Cài đặt.\n\n👉 CV này tạm thời đã được lưu lên Supabase Storage độc lập.\n👉 Cách khắc phục: Bạn hãy vào Cài đặt (Biểu tượng Bánh răng ở góc trên bên phải) -> Chọn tab "GitHub" -> Điền Token và Tài khoản/Tên kho rồi bấm "Lưu cấu hình" là có thể sử dụng được ngay lập tức mà không cần đợi Cloudflare Re-deploy nhé!');
+        }
+      } 
+      // 3. No storage configured
+      else {
+        throw new Error('Bạn chưa cấu hình kho GitHub hoặc Supabase đễ lưu trữ file. Hãy bấm vào biểu tượng bánh răng Cấu hình Hệ thống ở góc màn hình.');
+      }
+    } catch (err: any) {
+      alert(`⚠️ Lỗi tải file lên: ${err?.message || 'Có lỗi xảy ra'}`);
+    } finally {
+      setCvUploading(false);
+      if (cvFileInputRef.current) cvFileInputRef.current.value = '';
+    }
+  };
 
   const updateRow = (idx: number, key: keyof Candidate, val: any) => {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, [key]: val } : r));
@@ -292,9 +799,9 @@ function CandidateModal({
     e.preventDefault();
 
     const BULK_FIELDS: (keyof Candidate)[] = [
-      'full_name', 'birth_year', 'phone', 'experience', 'position', 
-      'desired_location', 'referral_date', 'referrer', 'recruiter', 
-      'recruitment_status', 'notes'
+      'referral_date', 'full_name', 'send_bch_date', 'birth_year', 'phone', 
+      'experience', 'position', 'desired_location', 'referrer', 'recruiter', 
+      'tqt_interview', 'recruitment_status', 'notes'
     ];
 
     const startFieldIdx = focusedField ? BULK_FIELDS.indexOf(focusedField) : 0;
@@ -319,7 +826,7 @@ function CandidateModal({
           if (fieldIdx < BULK_FIELDS.length) {
             const fieldKey = BULK_FIELDS[fieldIdx];
             let val = cellVal.trim();
-            if (fieldKey === 'referral_date') {
+            if (fieldKey === 'referral_date' || fieldKey === 'send_bch_date') {
               val = formatDateInput(val);
             }
             row[fieldKey] = val as any;
@@ -419,12 +926,42 @@ function CandidateModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày giới thiệu</label>
-                <input value={form.referral_date || ''} onChange={e => set('referral_date', formatDateInput(e.target.value))}
-                  placeholder="dd/mm/yyyy"
-                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+                <input 
+                  type="date"
+                  value={convertToYYYYMMDD(form.referral_date)} 
+                  onChange={e => set('referral_date', convertToDDMMYYYY(e.target.value))}
+                  onClick={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onFocus={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onKeyDown={e => {
+                    e.preventDefault();
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Ngày gửi BCH/ Phòng Nhân sự</label>
+                <input 
+                  type="date"
+                  value={convertToYYYYMMDD(form.send_bch_date)} 
+                  onChange={e => set('send_bch_date', convertToDDMMYYYY(e.target.value))}
+                  onClick={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onFocus={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onKeyDown={e => {
+                    e.preventDefault();
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
               </div>
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Người giới thiệu</label>
@@ -439,7 +976,7 @@ function CandidateModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tình trạng</label>
                 <select value={form.recruitment_status || ''} onChange={e => set('recruitment_status', e.target.value)}
@@ -459,6 +996,80 @@ function CandidateModal({
                   {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                 </select>
               </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">TQT Phỏng vấn</label>
+                <select 
+                  value={form.tqt_interview || ''} 
+                  onChange={e => set('tqt_interview', e.target.value)}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all"
+                >
+                  <option value="">-- Chọn nhân sự --</option>
+                  {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                </select>
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest flex items-center gap-2">
+                <FileText size={13} className="text-blue-500" /> CV Ứng viên (File PDF / Link Github / Drive)
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <input 
+                    type="text" 
+                    value={form.cv_url || ''} 
+                    onChange={e => set('cv_url', e.target.value)}
+                    placeholder="Dán link PDF (hoặc bấm tải PDF lên bên phải) ví dụ: https://raw.githubusercontent.com/..."
+                    className="w-full border border-slate-200 rounded-xl pl-4 pr-10 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all placeholder:text-slate-400"
+                  />
+                  {form.cv_url && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        if (onViewCV) {
+                          onViewCV(form.cv_url!, form.full_name || 'Ứng viên');
+                        } else {
+                          window.open(formatLinkCV(form.cv_url!), '_blank', 'noopener,noreferrer');
+                        }
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-blue-500 hover:text-blue-700 transition cursor-pointer"
+                      title="Xem thử CV trực tuyến"
+                    >
+                      <ExternalLink size={15} />
+                    </button>
+                  )}
+                </div>
+                
+                <input 
+                  type="file" 
+                  ref={cvFileInputRef} 
+                  onChange={handleCVUpload} 
+                  accept=".pdf" 
+                  className="hidden" 
+                />
+                
+                <button
+                  type="button"
+                  onClick={() => cvFileInputRef.current?.click()}
+                  disabled={cvUploading}
+                  className="px-5 py-2.5 bg-blue-50 border border-blue-200 hover:bg-blue-100 text-blue-600 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5 shrink-0 disabled:opacity-50"
+                >
+                  {cvUploading ? (
+                    <>
+                      <Loader2 size={15} className="animate-spin text-blue-500" />
+                      Tải lên...
+                    </>
+                  ) : (
+                    <>
+                      <Upload size={15} />
+                      Tải PDF lên
+                    </>
+                  )}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500 font-medium ml-1">
+                Lưu ý: Hệ thống hỗ trợ tự động lưu CV lên GitHub nếu đã cấu hình, hoặc lưu tạm lên Supabase Storage độc lập. Bạn có thể dán link trực tiếp nếu muốn.
+              </p>
             </div>
 
             <div className="space-y-1.5">
@@ -542,15 +1153,17 @@ function CandidateModal({
               <thead>
                 <tr>
                   <th style={{ width: 50 }}>STT</th>
+                  <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
+                  <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
                   <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                   <th style={{ width: 80 }}>Năm sinh</th>
                   <th style={{ width: 120 }}>SĐT</th>
                   <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                   <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                   <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
-                  <th style={{ width: 120 }}>Ngày giới thiệu</th>
                   <th style={{ minWidth: 120 }}>Người giới thiệu</th>
                   <th style={{ minWidth: 120 }}>NS P.TD nhận</th>
+                  <th style={{ minWidth: 120 }}>TQT Phỏng vấn</th>
                   <th style={{ minWidth: 180 }}>Tình trạng</th>
                   <th style={{ minWidth: 200 }}>Ghi chú</th>
                   <th style={{ width: 50 }}></th>
@@ -560,6 +1173,42 @@ function CandidateModal({
                 {rows.map((row, idx) => (
                   <tr key={idx} className="hover:bg-blue-50/30 transition-colors group border-b border-slate-300">
                     <td className="p-1 border-r border-slate-300 text-center text-slate-500 font-bold bg-slate-50/50">{idx + 1}</td>
+                    <td className="p-1 border-r border-slate-300" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>
+                      <input 
+                        type="date"
+                        value={convertToYYYYMMDD(row.referral_date)} 
+                        onChange={e => updateRow(idx, 'referral_date', convertToDDMMYYYY(e.target.value))}
+                        onClick={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onFocus={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onKeyDown={e => {
+                          e.preventDefault();
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        data-field="referral_date" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
+                    </td>
+                    <td className="p-1 border-r border-slate-300" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>
+                      <input 
+                        type="date"
+                        value={convertToYYYYMMDD(row.send_bch_date)} 
+                        onChange={e => updateRow(idx, 'send_bch_date', convertToDDMMYYYY(e.target.value))}
+                        onClick={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onFocus={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onKeyDown={e => {
+                          e.preventDefault();
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        data-field="send_bch_date" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
+                    </td>
                     <td className="p-1 border-r border-slate-300">
                       <input value={row.full_name || ''} onChange={e => updateRow(idx, 'full_name', e.target.value)}
                         data-field="full_name" data-row-idx={idx}
@@ -601,12 +1250,6 @@ function CandidateModal({
                         className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="..." />
                     </td>
                     <td className="p-1 border-r border-slate-300">
-                      <input value={row.referral_date || ''} 
-                        onChange={e => updateRow(idx, 'referral_date', formatDateInput(e.target.value))}
-                        data-field="referral_date" data-row-idx={idx}
-                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="dd/mm/yyyy" />
-                    </td>
-                    <td className="p-1 border-r border-slate-300">
                       <select 
                         value={row.referrer || ''} 
                         onChange={e => updateRow(idx, 'referrer', e.target.value)}
@@ -626,6 +1269,17 @@ function CandidateModal({
                       >
                         <option value="">-- Chọn --</option>
                         {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      </select>
+                    </td>
+                    <td className="p-1 border-r border-slate-300">
+                      <select 
+                        value={row.tqt_interview || ''} 
+                        onChange={e => updateRow(idx, 'tqt_interview', e.target.value)}
+                        data-field="tqt_interview" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 focus:bg-white focus:shadow-inner rounded text-[12px]"
+                      >
+                        <option value="">-- Chọn --</option>
+                        {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
                     </td>
                     <td className="p-1 border-r border-slate-300">
@@ -711,6 +1365,149 @@ function ConfirmDeleteModal({ name, onConfirm, onClose }: {
         <div className="px-6 pb-5 flex gap-3">
           <button onClick={onClose} className="flex-1 py-3 rounded-xl border-2 border-slate-200 text-slate-600 font-bold hover:bg-slate-50 transition-all">Hủy</button>
           <button onClick={onConfirm} className="flex-1 py-3 rounded-xl bg-red-600 hover:bg-red-700 text-white font-black transition-all">Xóa</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── CV Viewer Modal ─────────────────────────────────────────────────────────
+
+function CVViewerModal({
+  url,
+  candidateName,
+  onClose,
+}: {
+  url: string;
+  candidateName: string;
+  onClose: () => void;
+}) {
+  const [activeTab, setActiveTab] = useState<'google' | 'direct'>('google');
+  const [loading, setLoading] = useState(true);
+  const safeUrl = formatLinkCV(url);
+
+  useEffect(() => {
+    setLoading(true);
+  }, [activeTab]);
+
+  const googleViewerUrl = `https://docs.google.com/viewer?url=${encodeURIComponent(safeUrl)}&embedded=true`;
+
+  return (
+    <div className="modal-overlay z-50 flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
+      <div 
+        className="modal-content bg-white rounded-2xl w-[96vw] max-w-[1500px] h-[92vh] flex flex-col overflow-hidden shadow-2xl transition-all"
+        onClick={e => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-slate-900 border-b border-slate-800 px-6 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 bg-blue-500/10 rounded-xl flex items-center justify-center text-blue-400 border border-blue-500/20">
+              <FileText size={20} />
+            </div>
+            <div>
+              <h3 className="text-white font-black text-sm uppercase tracking-wider select-none">
+                Bản xem trực tiếp CV Ứng viên
+              </h3>
+              <p className="text-slate-400 text-xs font-semibold mt-0.5">
+                Ứng viên: <span className="text-blue-400 font-bold">{candidateName}</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Quick Tabs to toggle view modes */}
+          <div className="flex bg-slate-850 p-1 rounded-xl text-xs font-semibold text-slate-300 border border-slate-800">
+            <button
+              onClick={() => setActiveTab('google')}
+              className={cn(
+                'px-3.5 py-1.5 rounded-lg transition-all cursor-pointer',
+                activeTab === 'google' ? 'bg-blue-650 text-white font-black shadow' : 'hover:text-white'
+              )}
+            >
+              Xem trực tiếp (Web Viewer)
+            </button>
+            <button
+              onClick={() => setActiveTab('direct')}
+              className={cn(
+                'px-3.5 py-1.5 rounded-lg transition-all cursor-pointer',
+                activeTab === 'direct' ? 'bg-blue-650 text-white font-black shadow' : 'hover:text-white'
+              )}
+            >
+              Mở trực tiếp (Iframe)
+            </button>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+            <a
+              href={safeUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 hover:text-white rounded-xl border border-slate-700 font-bold text-xs flex items-center gap-1.5 transition-all"
+              title="Mở trong tab mới"
+            >
+              <ExternalLink size={13} />
+              <span className="hidden sm:inline">Mở tab mới</span>
+            </a>
+            
+            <a
+              href={safeUrl}
+              download
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-2 bg-blue-600/10 hover:bg-blue-600 text-blue-400 hover:text-white rounded-xl border border-blue-500/20 font-bold text-xs flex items-center gap-1.5 transition-all"
+              title="Tải tệp xuống máy"
+            >
+              <Download size={13} />
+              <span className="hidden sm:inline">Tải về</span>
+            </a>
+
+            <button
+              onClick={onClose}
+              className="p-2 bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white rounded-xl border border-slate-700 transition-all ml-1 cursor-pointer"
+              title="Đóng bản xem trước"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Info Banner when view may not load */}
+        {activeTab === 'google' && (
+          <div className="bg-amber-500/10 border-b border-amber-500/15 py-2 px-6 flex justify-between items-center text-[11px] text-amber-700 select-none">
+            <span>
+              💡 <b>Mẹo:</b> Bộ đọc trực tiếp hỗ trợ xem, thu nhỏ/phóng to mọi định dạng PDF ngay trong ứng dụng mà không cần tự động tải file về điện thoại/máy tính của bạn!
+            </span>
+            <button 
+              onClick={() => {
+                setLoading(true);
+              }}
+              className="text-amber-800 underline font-bold hover:text-amber-950 flex items-center gap-1 cursor-pointer"
+            >
+              <RefreshCw size={10} className="animate-spin" /> Tải lại bộ xem
+            </button>
+          </div>
+        )}
+
+        {/* Body Viewer */}
+        <div className="flex-1 bg-slate-100 relative">
+          {loading && (
+            <div className="absolute inset-0 bg-slate-50 flex flex-col items-center justify-center p-6 text-center select-none z-10 transition-all duration-300">
+              <div className="w-12 h-12 bg-blue-500/10 border border-blue-200/50 rounded-2xl flex items-center justify-center text-blue-500 mb-4 shadow-sm">
+                <RefreshCw size={24} className="animate-spin text-blue-600" />
+              </div>
+              <p className="text-slate-700 font-bold text-sm">Đang tải bản xem trực tuyến CV...</p>
+              <p className="text-slate-400 text-xs mt-1.5 max-w-sm">
+                Nếu bản xem trực tuyến tải quá lâu, bạn có thể nhấn nút <span className="font-bold text-blue-600">"Mở tab mới"</span> hoặc <span className="font-bold text-blue-600">"Tải về"</span> ở góc trên cùng bên phải.
+              </p>
+            </div>
+          )}
+
+          <iframe
+            src={activeTab === 'google' ? googleViewerUrl : safeUrl}
+            className="w-full h-full border-none"
+            onLoad={() => setLoading(false)}
+            title={`CV Viewer - ${candidateName}`}
+          />
         </div>
       </div>
     </div>
@@ -1387,7 +2184,7 @@ function ConfigView({
 
 // ─── Documents View ───────────────────────────────────────────────────────────
 
-function DocumentsView({ sb, showToast }: { sb: ReturnType<typeof supabaseInit> | null; showToast: (msg: string, type: Toast['type']) => void }) {
+function DocumentsView({ sb, showToast }: { sb: any; showToast: (msg: string, type: Toast['type']) => void }) {
   const [documents, setDocuments] = useState<DocumentType[]>([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -1847,6 +2644,7 @@ export default function App() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
+  const [cvViewer, setCvViewer] = useState<{ url: string; title: string } | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -2085,6 +2883,7 @@ export default function App() {
         c.phone?.toLowerCase().includes(q) ||
         c.position?.toLowerCase().includes(q) ||
         c.referrer?.toLowerCase().includes(q) ||
+        c.tqt_interview?.toLowerCase().includes(q) ||
         c.recruitment_status?.toLowerCase().includes(q) ||
         c.notes?.toLowerCase().includes(q)
       );
@@ -2096,12 +2895,13 @@ export default function App() {
   // Level 1: Tình trạng (theo sort_order của settings_statuses)
   // Level 2: Ngày giới thiệu từ cũ → mới (dd/mm/yyyy)
   const parseReferralDate = (dateStr?: string): number => {
-    if (!dateStr) return Number.MAX_SAFE_INTEGER;
+    const formatted = formatReferralDate(dateStr);
+    if (!formatted) return Number.MAX_SAFE_INTEGER;
     // Hỗ trợ định dạng dd/mm/yyyy
-    const parts = dateStr.trim().split('/');
+    const parts = formatted.trim().split('/');
     if (parts.length === 3) {
       const [d, m, y] = parts;
-      return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`).getTime() || Number.MAX_SAFE_INTEGER;
+      return new Date(`${y}-${m}-${d}`).getTime() || Number.MAX_SAFE_INTEGER;
     }
     return Number.MAX_SAFE_INTEGER;
   };
@@ -2135,6 +2935,22 @@ export default function App() {
   // ── Status counts (dùng cho thanh tóm tắt header) ──
   const statusCounts: Record<string, number> = {};
   candidates.forEach(c => {
+    if (filterGroup && c.group_type !== filterGroup) return;
+    if (filterReferrer && c.referrer !== filterReferrer) return;
+    if (filterRecruiter && c.recruiter !== filterRecruiter) return;
+    if (search) {
+      const q = search.toLowerCase();
+      const match = (
+        c.full_name?.toLowerCase().includes(q) ||
+        c.phone?.toLowerCase().includes(q) ||
+        c.position?.toLowerCase().includes(q) ||
+        c.referrer?.toLowerCase().includes(q) ||
+        c.tqt_interview?.toLowerCase().includes(q) ||
+        c.recruitment_status?.toLowerCase().includes(q) ||
+        c.notes?.toLowerCase().includes(q)
+      );
+      if (!match) return;
+    }
     const s = c.recruitment_status || 'Chưa xác định';
     statusCounts[s] = (statusCounts[s] || 0) + 1;
   });
@@ -2150,16 +2966,19 @@ export default function App() {
       // Define columns with widths matching web app proportions
       worksheet.columns = [
         { header: 'STT', key: 'stt', width: 6 },
+        { header: 'Ngày giới thiệu', key: 'referral_date', width: 15 },
+        { header: 'Ngày gửi BCH/ Phòng Nhân sự', key: 'send_bch_date', width: 20 },
         { header: 'Tên ứng viên', key: 'full_name', width: 25 },
         { header: 'Năm sinh', key: 'birth_year', width: 10 },
         { header: 'SĐT', key: 'phone', width: 15 },
         { header: 'Kinh nghiệm/Năng lực', key: 'experience', width: 25 },
         { header: 'Vị trí ứng tuyển', key: 'position', width: 25 },
         { header: 'Địa điểm mong muốn làm việc', key: 'desired_location', width: 25 },
-        { header: 'Ngày giới thiệu', key: 'referral_date', width: 15 },
         { header: 'Người giới thiệu', key: 'referrer', width: 20 },
         { header: 'NS P.TD nhận', key: 'recruiter', width: 20 },
+        { header: 'TQT Phỏng vấn', key: 'tqt_interview', width: 20 },
         { header: 'Tình trạng', key: 'recruitment_status', width: 22 },
+        { header: 'CV Ứng viên', key: 'cv_url', width: 25 },
         { header: 'Ghi chú', key: 'notes', width: 45 },
       ];
 
@@ -2210,7 +3029,7 @@ export default function App() {
           });
           
           // Merge cells for group header
-          worksheet.mergeCells(`B${groupRow.number}:L${groupRow.number}`);
+          worksheet.mergeCells(`B${groupRow.number}:O${groupRow.number}`);
           
           groupRow.height = 28;
           groupRow.eachCell((cell) => {
@@ -2236,16 +3055,19 @@ export default function App() {
         sttInGroup++;
         const rowData = {
           stt: sttInGroup,
+          referral_date: formatReferralDate(c.referral_date),
           full_name: c.full_name || '',
+          send_bch_date: formatReferralDate(c.send_bch_date),
           birth_year: c.birth_year || '',
           phone: c.phone || '',
           experience: c.experience || '',
           position: c.position || '',
           desired_location: c.desired_location || '',
-          referral_date: c.referral_date || '',
           referrer: c.referrer || '',
           recruiter: c.recruiter || '',
+          tqt_interview: c.tqt_interview || '',
           recruitment_status: c.recruitment_status || '',
+          cv_url: c.cv_url ? 'Xem CV' : '',
           notes: c.notes || ''
         };
 
@@ -2261,19 +3083,23 @@ export default function App() {
             right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
           };
 
-          if (colNumber === 1 || colNumber === 3 || colNumber === 4 || colNumber === 8 || colNumber === 11) { // STT, Năm sinh, SĐT, Ngày giới thiệu, Tình trạng
+          if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 5 || colNumber === 6 || colNumber === 13 || colNumber === 14) { // STT, Ngày giới thiệu, Ngày gửi BCH, Năm sinh, SĐT, Tình trạng, CV
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
           }
           
           if (colNumber === 1) { // STT
             cell.font = { bold: true, color: { argb: 'FF1E40AF' } };
           }
-          if (colNumber === 2) { // Tên ứng viên
+          if (colNumber === 4) { // Tên ứng viên
             cell.font = { bold: true, color: { argb: 'FF1E293B' } };
+          }
+          if (colNumber === 14 && c.cv_url) { // CV Ứng viên
+            cell.value = { text: 'Xem CV', hyperlink: c.cv_url };
+            cell.font = { size: 11, name: 'Arial', color: { argb: 'FF2563EB' }, underline: true };
           }
 
           // Style status cell
-          if (colNumber === 11 && c.recruitment_status) {
+          if (colNumber === 13 && c.recruitment_status) {
             const dbColor = statuses.find(s => s.name === c.recruitment_status)?.color_bg;
             const rawColor = dbColor || getAutoBgColor(c.recruitment_status);
             // Normalize hex: expand 3-digit (#abc -> #aabbcc) and strip #
@@ -2658,16 +3484,19 @@ export default function App() {
                       <thead>
                         <tr>
                           <th style={{ width: 50 }}>STT</th>
+                          <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
+                          <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
                           <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                           <th style={{ width: 80 }}>Năm sinh</th>
                           <th style={{ width: 120 }}>SĐT</th>
                           <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                           <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                           <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
-                          <th style={{ width: 120 }}>Ngày giới thiệu</th>
                           <th style={{ minWidth: 120 }}>Người giới thiệu</th>
                           <th style={{ minWidth: 120 }}>NS P.TD Nhận</th>
+                          <th style={{ minWidth: 120 }}>TQT Phỏng vấn</th>
                           <th style={{ minWidth: 180 }}>Tình trạng</th>
+                          <th style={{ minWidth: 150 }}>CV Ứng viên</th>
                           <th style={{ minWidth: 200 }}>Ghi chú</th>
                           <th style={{ width: 80 }}>Thao tác</th>
                         </tr>
@@ -2703,7 +3532,7 @@ export default function App() {
                                         {toRoman(groupIndex)}
                                       </span>
                                     </td>
-                                    <td colSpan={12} style={{ color: color.text }} className="py-2.5 px-4 font-black text-sm uppercase tracking-tight">
+                                    <td colSpan={15} style={{ color: color.text }} className="py-2.5 px-4 font-black text-sm uppercase tracking-tight">
                                       <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8 }}>
                                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color.border, display: 'inline-block', flexShrink: 0 }} />
                                         {groupName}
@@ -2713,17 +3542,38 @@ export default function App() {
                                 )}
                                 <tr style={hl?.key ? { background: hl.bg, color: hl.text } : {}}>
                                   <td className="text-center font-bold text-blue-700 text-xs">{(c as any).sttInGroup}</td>
+                                  <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.referral_date)}</td>
+                                  <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.send_bch_date)}</td>
                                   <td className="font-semibold">{c.full_name}</td>
                                   <td className="text-center">{c.birth_year}</td>
                                   <td className="text-center">{c.phone}</td>
                                   <td>{c.experience}</td>
                                   <td>{c.position}</td>
                                   <td>{c.desired_location}</td>
-                                  <td className="text-center text-xs">{c.referral_date}</td>
                                   <td>{c.referrer}</td>
                                   <td>{c.recruiter}</td>
+                                  <td>{c.tqt_interview}</td>
                                   <td className="text-center">
                                     {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
+                                  </td>
+                                  <td className="text-center">
+                                    {isLinkValid(c.cv_url) ? (
+                                      <a 
+                                        href={formatLinkCV(c.cv_url!)} 
+                                        target="_blank" 
+                                        rel="noopener noreferrer" 
+                                        className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded-lg text-[11px] font-bold transition-all border border-blue-200/40 cursor-pointer"
+                                        title={c.cv_url}
+                                        onClick={(e) => {
+                                          e.preventDefault();
+                                          setCvViewer({ url: c.cv_url!, title: c.full_name || 'Ứng viên' });
+                                        }}
+                                      >
+                                        <FileText size={12} className="shrink-0" /> Xem CV
+                                      </a>
+                                    ) : (
+                                      <span className="text-slate-300 text-[11px] italic">Chưa có CV</span>
+                                    )}
                                   </td>
                                   <td className="text-xs text-slate-500 italic">{c.notes}</td>
                                   <td>
@@ -2790,8 +3640,9 @@ export default function App() {
       {/* Modals */}
       {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onSave={handleSaveSettings} />}
       {showQRModal && <QRModal groups={groups} onClose={() => setShowQRModal(false)} />}
-      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} />}
+      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} onViewCV={(url, name) => setCvViewer({ url, title: name })} />}
       {deleteId && <ConfirmDeleteModal name={deleteTarget?.full_name || ''} onConfirm={handleDelete} onClose={() => setDeleteId(null)} />}
+      {cvViewer && <CVViewerModal url={cvViewer.url} candidateName={cvViewer.title} onClose={() => setCvViewer(null)} />}
 
       {/* Toast */}
       <ToastDisplay toast={toast} onClose={() => setToast(null)} />

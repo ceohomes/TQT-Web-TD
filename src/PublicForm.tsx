@@ -95,6 +95,12 @@ export default function PublicForm() {
       const sb = getSupabaseClient();
       if (!sb) throw new Error('Chưa cấu hình kết nối database');
 
+      const now = new Date();
+      const rDay = String(now.getDate()).padStart(2, '0');
+      const rMonth = String(now.getMonth() + 1).padStart(2, '0');
+      const rYear = now.getFullYear();
+      const referralDate = `${rDay}/${rMonth}/${rYear}`;
+
       const { error } = await sb.from('candidates').insert([{
         group_type: groupCode,
         full_name: form.full_name.trim(),
@@ -104,7 +110,7 @@ export default function PublicForm() {
         desired_location: form.desired_location.trim(),
         notes: form.notes.trim(),
         recruitment_status: 'P.TD chưa liên hệ',
-        referral_date: new Date().toLocaleDateString('vi-VN'),
+        referral_date: referralDate,
       }]);
 
       if (error) throw error;
