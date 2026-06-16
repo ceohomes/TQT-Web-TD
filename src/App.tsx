@@ -2688,6 +2688,7 @@ export default function App() {
   const [page, setPage] = useState(1);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [activeView, setActiveView] = useState<'list' | 'config' | 'documents'>('list');
+  const [dbHasTqtInterview, setDbHasTqtInterview] = useState<boolean | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // supabase client — có thể được reinit sau khi user lưu settings
@@ -2720,7 +2721,32 @@ export default function App() {
         .order('stt', { ascending: true })
         .order('created_at', { ascending: false });
       if (candError) throw candError;
-      setCandidates(candData || []);
+
+      // Detect if db holds tqt_interview column dynamically
+      let hasColumn = true;
+      if (candData && candData.length > 0) {
+        hasColumn = 'tqt_interview' in candData[0];
+        setDbHasTqtInterview(hasColumn);
+      }
+
+      // Format & Parse fallback TQT from Notes if column is missing on DB
+      const processedCand = (candData || []).map((c: any) => {
+        let tqt = c.tqt_interview || '';
+        let displayNotes = c.notes || '';
+        if (!hasColumn && displayNotes.startsWith('[TQT:')) {
+          const match = displayNotes.match(/^\[TQT:\s*([^\]]+)\]\s*(.*)/s);
+          if (match) {
+            tqt = match[1].trim();
+            displayNotes = match[2] ? match[2].trim() : '';
+          }
+        }
+        return {
+          ...c,
+          tqt_interview: tqt,
+          notes: displayNotes,
+        };
+      });
+      setCandidates(processedCand);
 
       // Fetch groups
       const { data: groupData, error: groupError } = await sb
@@ -2866,10 +2892,10 @@ export default function App() {
     showToast('Đang lưu...', 'loading');
     try {
       if (modal?.type === 'add') {
-        const toInsert = dataArray
+        let toInsert = dataArray
           .filter(row => row.full_name?.trim())
           .map(row => {
-            const { id, sttInGroup, ...rest } = row as any;
+            const { id, sttInGroup, stt, ...rest } = row as any;
             return rest;
           });
 
@@ -2878,15 +2904,67 @@ export default function App() {
           return;
         }
 
+        if (dbHasTqtInterview === false) {
+          toInsert = toInsert.map(row => {
+            const { tqt_interview, notes, ...other } = row;
+            return {
+              ...other,
+              notes: tqt_interview ? `[TQT: ${tqt_interview}] ${notes || ''}`.trim() : notes,
+            };
+          });
+        }
+
         const { error } = await sb.from('candidates').insert(toInsert);
-        if (error) throw error;
-        showToast(`✅ Đã thêm ${toInsert.length} ứng viên`, 'success');
+        if (error) {
+          if (error.message?.includes('tqt_interview')) {
+            setDbHasTqtInterview(false);
+            const fallbackInsert = toInsert.map(row => {
+              const { tqt_interview, notes, ...other } = row;
+              return {
+                ...other,
+                notes: tqt_interview ? `[TQT: ${tqt_interview}] ${notes || ''}`.trim() : notes,
+              };
+            });
+            const { error: retryErr } = await sb.from('candidates').insert(fallbackInsert);
+            if (retryErr) throw retryErr;
+            showToast(`✅ Đã thêm ${toInsert.length} ứng viên (đã lưu TQT vào Ghi chú)`, 'success');
+          } else {
+            throw error;
+          }
+        } else {
+          showToast(`✅ Đã thêm ${toInsert.length} ứng viên`, 'success');
+        }
       } else {
         const singleData = data as any;
-        const { id, created_at, sttInGroup, ...rest } = singleData;
-        const { error } = await sb.from('candidates').update({ ...rest, updated_at: new Date().toISOString() }).eq('id', id!);
-        if (error) throw error;
-        showToast(`✅ Đã cập nhật: ${singleData.full_name}`, 'success');
+        const { id, created_at, sttInGroup, stt, ...rest } = singleData;
+        
+        let payload = { ...rest, updated_at: new Date().toISOString() };
+        if (dbHasTqtInterview === false) {
+          const { tqt_interview, notes, ...other } = payload;
+          payload = {
+            ...other,
+            notes: tqt_interview ? `[TQT: ${tqt_interview}] ${notes || ''}`.trim() : notes,
+          };
+        }
+
+        const { error } = await sb.from('candidates').update(payload).eq('id', id!);
+        if (error) {
+          if (error.message?.includes('tqt_interview')) {
+            setDbHasTqtInterview(false);
+            const { tqt_interview, notes, ...other } = payload;
+            const fallbackPayload = {
+              ...other,
+              notes: tqt_interview ? `[TQT: ${tqt_interview}] ${notes || ''}`.trim() : notes,
+            };
+            const { error: retryErr } = await sb.from('candidates').update(fallbackPayload).eq('id', id!);
+            if (retryErr) throw retryErr;
+            showToast(`✅ Đã cập nhật (đã lưu TQT vào Ghi chú)`, 'success');
+          } else {
+            throw error;
+          }
+        } else {
+          showToast(`✅ Đã cập nhật: ${singleData.full_name}`, 'success');
+        }
       }
       setModal(null);
       await loadData();
