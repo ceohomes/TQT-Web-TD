@@ -1164,7 +1164,7 @@ function CandidateModal({
                   <th style={{ minWidth: 120 }}>Người giới thiệu</th>
                   <th style={{ minWidth: 120 }}>NS P.TD nhận</th>
                   <th style={{ minWidth: 120 }}>TQT Phỏng vấn</th>
-                  <th style={{ minWidth: 180 }}>Tình trạng</th>
+                  <th style={{ width: 140, minWidth: 140, maxWidth: 140 }}>Tình trạng</th>
                   <th style={{ minWidth: 200 }}>Ghi chú</th>
                   <th style={{ width: 50 }}></th>
                 </tr>
@@ -1282,7 +1282,7 @@ function CandidateModal({
                         {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
                       </select>
                     </td>
-                    <td className="p-1 border-r border-slate-300">
+                    <td className="p-1 border-r border-slate-300" style={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                       <select
                         value={row.recruitment_status || ''}
                         onChange={e => updateRow(idx, 'recruitment_status', e.target.value)}
@@ -1395,7 +1395,7 @@ function CVViewerModal({
   return (
     <div className="modal-overlay z-50 flex items-center justify-center p-2 sm:p-4" onClick={onClose}>
       <div 
-        className="modal-content bg-white rounded-2xl w-[96vw] max-w-[1500px] h-[92vh] flex flex-col overflow-hidden shadow-2xl transition-all"
+        className="modal-content bg-white rounded-2xl w-[96vw] max-w-[850px] h-[96vh] flex flex-col overflow-hidden shadow-2xl transition-all"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -3495,8 +3495,8 @@ export default function App() {
                           <th style={{ minWidth: 120 }}>Người giới thiệu</th>
                           <th style={{ minWidth: 120 }}>NS P.TD Nhận</th>
                           <th style={{ minWidth: 120 }}>TQT Phỏng vấn</th>
-                          <th style={{ minWidth: 180 }}>Tình trạng</th>
-                          <th style={{ minWidth: 150 }}>CV Ứng viên</th>
+                          <th style={{ width: 140, minWidth: 140, maxWidth: 140 }}>Tình trạng</th>
+                          <th style={{ width: 100, minWidth: 100, maxWidth: 100 }}>CV Ứng viên</th>
                           <th style={{ minWidth: 200 }}>Ghi chú</th>
                           <th style={{ width: 80 }}>Thao tác</th>
                         </tr>
@@ -3553,10 +3553,10 @@ export default function App() {
                                   <td>{c.referrer}</td>
                                   <td>{c.recruiter}</td>
                                   <td>{c.tqt_interview}</td>
-                                  <td className="text-center">
+                                  <td className="text-center" style={{ width: 140, minWidth: 140, maxWidth: 140 }}>
                                     {c.recruitment_status ? <StatusBadge status={c.recruitment_status} statuses={statuses} /> : null}
                                   </td>
-                                  <td className="text-center">
+                                  <td className="text-center" style={{ width: 100, minWidth: 100, maxWidth: 100 }}>
                                     {isLinkValid(c.cv_url) ? (
                                       <a 
                                         href={formatLinkCV(c.cv_url!)} 
