@@ -2677,6 +2677,7 @@ export default function App() {
   const [filterStatus, setFilterStatus] = useState('');
   const [filterReferrer, setFilterReferrer] = useState('');
   const [filterRecruiter, setFilterRecruiter] = useState('');
+  const [filterTqtInterview, setFilterTqtInterview] = useState('');
   const [showFilters, setShowFilters] = useState(true);
   const [modal, setModal] = useState<{ type: 'add' | 'edit'; candidate: Partial<Candidate> } | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -2914,6 +2915,7 @@ export default function App() {
     if (filterStatus && c.recruitment_status !== filterStatus) return false;
     if (filterReferrer && c.referrer !== filterReferrer) return false;
     if (filterRecruiter && c.recruiter !== filterRecruiter) return false;
+    if (filterTqtInterview && c.tqt_interview !== filterTqtInterview) return false;
     if (search) {
       const q = search.toLowerCase();
       return (
@@ -2976,6 +2978,7 @@ export default function App() {
     if (filterGroup && c.group_type !== filterGroup) return;
     if (filterReferrer && c.referrer !== filterReferrer) return;
     if (filterRecruiter && c.recruiter !== filterRecruiter) return;
+    if (filterTqtInterview && c.tqt_interview !== filterTqtInterview) return;
     if (search) {
       const q = search.toLowerCase();
       const match = (
@@ -3389,80 +3392,89 @@ export default function App() {
         {activeView === 'list' && (
           <div className="p-4 md:p-6 space-y-3">
             {/* Row 1: Title + Filters + Toolbar combined */}
-            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-wrap gap-3 items-center justify-between shadow-sm font-roboto">
-              {/* Left: Title */}
-              <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 shrink-0">
-                <div className="w-1 h-5 bg-orange-500 rounded-full" />
-                Danh sách ứng viên
-                <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
-              </h2>
+            <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-row flex-nowrap items-center justify-between gap-4 shadow-sm font-roboto overflow-x-auto scrollbar-thin">
+              {/* Left Group (Title + Filters) */}
+              <div className="flex items-center gap-4 shrink-0">
+                {/* Left: Title */}
+                <h2 className="text-base font-black text-slate-800 uppercase tracking-tight flex items-center gap-2 shrink-0">
+                  <div className="w-1 h-5 bg-orange-500 rounded-full" />
+                  Danh sách ứng viên
+                  <span className="text-xs font-bold text-white bg-emerald-500 px-2 py-0.5 rounded-full normal-case shadow-sm">{sorted.length}/{candidates.length}</span>
+                </h2>
 
-              {/* Middle: Dropdown Filters */}
-              <div className="flex flex-wrap gap-2 items-end">
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Nhóm</label>
-                  <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[120px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả</option>
-                    {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Tình trạng</label>
-                  <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[160px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả tình trạng</option>
-                    {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Người giới thiệu</label>
-                  <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả người giới thiệu</option>
-                    {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">NS P.TD Nhận</label>
-                  <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
-                    className="border border-orange-200/50 rounded-xl px-3 py-1.5 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
-                    <option value="">Tất cả nhân sự</option>
-                    {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                  </select>
+                {/* Middle: Dropdown Filters */}
+                <div className="flex items-center gap-2.5">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Nhóm</label>
+                    <select value={filterGroup} onChange={e => { setFilterGroup(e.target.value); setPage(1); }}
+                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[120px] shadow-sm cursor-pointer hover:border-orange-300">
+                      <option value="">Tất cả</option>
+                      {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Tình trạng</label>
+                    <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
+                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[160px] shadow-sm cursor-pointer hover:border-orange-300">
+                      <option value="">Tất cả tình trạng</option>
+                      {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Người giới thiệu</label>
+                    <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
+                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
+                      <option value="">Tất cả người giới thiệu</option>
+                      {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">NS P.TD Nhận</label>
+                    <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
+                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
+                      <option value="">Tất cả nhân sự</option>
+                      {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">TQT Phỏng vấn</label>
+                    <select value={filterTqtInterview} onChange={e => { setFilterTqtInterview(e.target.value); setPage(1); }}
+                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
+                      <option value="">Tất cả nhân sự</option>
+                      {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
 
-              {/* Right: Toolbar Buttons */}
-              <div className="flex items-center gap-2 flex-wrap">
+              {/* Right Group: Search and Toolbar Buttons */}
+              <div className="flex items-end gap-2.5 shrink-0">
                 {/* Search */}
-                <div className="relative">
-                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                  <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-                    placeholder="Tìm kiếm..."
-                    className="pl-9 pr-8 py-2 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-40 shadow-sm" />
-                  {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X size={13} /></button>}
+                <div className="space-y-1">
+                  <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Tìm kiếm</label>
+                  <div className="relative">
+                    <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
+                      placeholder="Tìm kiếm..."
+                      className="h-10 pl-9 pr-8 border border-slate-200 rounded-xl text-[12px] font-medium text-slate-700 outline-none focus:border-blue-400 bg-white transition-all w-42 shadow-sm" />
+                    {search && <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-red-400"><X size={13} /></button>}
+                  </div>
                 </div>
                 {/* Clear filters - chỉ hiện khi đang có bộ lọc */}
-                {(filterGroup || filterStatus || filterReferrer || filterRecruiter || search) && (
-                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setSearch(''); setPage(1); }}
-                    className="flex items-center gap-1.5 px-4 py-2 bg-orange-50 border border-orange-300 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 rounded-xl text-[12px] font-bold transition-all">
+                {(filterGroup || filterStatus || filterReferrer || filterRecruiter || filterTqtInterview || search) && (
+                  <button onClick={() => { setFilterGroup(''); setFilterStatus(''); setFilterReferrer(''); setFilterRecruiter(''); setFilterTqtInterview(''); setSearch(''); setPage(1); }}
+                    className="h-10 flex items-center gap-1.5 px-4 bg-orange-50 border border-orange-300 text-orange-600 hover:bg-orange-500 hover:text-white hover:border-orange-500 rounded-xl text-[12px] font-bold transition-all shadow-sm">
                     <X size={13} /> Xóa bộ lọc
                   </button>
                 )}
                 {/* Export */}
                 <button onClick={exportExcel}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
+                  className="h-10 flex items-center gap-1.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
                   <FileDown size={13} /> Xuất Excel
-                </button>
-                {/* QR Code */}
-                <button onClick={() => setShowQRModal(true)}
-                  className="flex items-center gap-1.5 px-4 py-2 bg-[#1a3a6b] hover:bg-[#1e4480] text-white rounded-xl text-[12px] font-bold transition-all shadow-sm">
-                  <QrCode size={13} /> Tạo mã QR
                 </button>
                 {/* Add */}
                 <button onClick={() => setModal({ type: 'add', candidate: { ...EMPTY_CANDIDATE } })}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-[12px] font-black transition-all shadow-lg shadow-orange-500/30">
+                  className="h-10 flex items-center gap-1.5 px-5 bg-gradient-to-br from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700 text-white rounded-xl text-[12px] font-black transition-all shadow-lg shadow-orange-500/30">
                   <Plus size={14} /> Thêm ứng viên
                 </button>
               </div>
