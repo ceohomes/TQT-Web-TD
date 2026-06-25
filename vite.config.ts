@@ -40,8 +40,8 @@ function findEnvValue(possibleKeys: string[]): string {
     if (!normalizedEnvKey) continue;
 
     for (const normPossible of normalizedPossibles) {
-      // Match if one contains the other (e.g. "tenrepositorytenkho" contains "tenrepository")
-      if (normalizedEnvKey.includes(normPossible) || normPossible.includes(normalizedEnvKey)) {
+      // Must match exactly after normalization to avoid false positives (e.g. USER matching GITHUB_USER)
+      if (normalizedEnvKey === normPossible) {
         return process.env[envKey] as string;
       }
     }
