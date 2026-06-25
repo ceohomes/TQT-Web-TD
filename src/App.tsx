@@ -671,18 +671,24 @@ function CandidateModal({
       let ghToken = localStorage.getItem('gh_token') || import.meta.env.VITE_GITHUB_TOKEN || '';
       let ghOwner = localStorage.getItem('gh_owner') || '';
       if (!ghOwner) {
-        const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
-        if (envRepo && envRepo.includes('/')) {
-          ghOwner = envRepo.split('/')[0]?.trim() || '';
+        ghOwner = import.meta.env.VITE_GITHUB_OWNER || '';
+        if (!ghOwner) {
+          const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+          if (envRepo && envRepo.includes('/')) {
+            ghOwner = envRepo.split('/')[0]?.trim() || '';
+          }
         }
       }
       let ghRepo = localStorage.getItem('gh_repo') || '';
       if (!ghRepo) {
-        const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
-        if (envRepo && envRepo.includes('/')) {
-          ghRepo = envRepo.split('/')[1]?.trim() || '';
-        } else {
-          ghRepo = envRepo || '';
+        ghRepo = import.meta.env.VITE_GITHUB_REPO_NAME || '';
+        if (!ghRepo) {
+          const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+          if (envRepo && envRepo.includes('/')) {
+            ghRepo = envRepo.split('/')[1]?.trim() || '';
+          } else {
+            ghRepo = envRepo || '';
+          }
         }
       }
       const ghBranch = localStorage.getItem('gh_branch') || 'main';
