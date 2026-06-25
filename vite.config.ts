@@ -50,10 +50,10 @@ function findEnvValue(possibleKeys: string[]): string {
   return '';
 }
 
-const token = findEnvValue(['GitHub Personal Access Token', 'GITHUB_TOKEN', 'VITE_GITHUB_TOKEN', 'Personal Access Token', 'Personal Access']) || '';
-const owner = findEnvValue(['GitHub Tài khoản', 'GitHub Tai khoan', 'GITHUB_OWNER', 'GITHUB_USER', 'CEOHomes']) || '';
-const repoName = findEnvValue(['Tên repository (Tên kho)', 'Ten repository', 'Tên repository', 'GITHUB_REPO_NAME', 'GITHUB_REPO', 'CV-TQT']) || '';
-const combinedRepo = findEnvValue(['GITHUB_REPO', 'GitHub repository']) || (owner && repoName ? `${owner}/${repoName}` : '');
+const token = findEnvValue(['VITE_GITHUB_TOKEN', 'GitHub Personal Access Token', 'GITHUB_TOKEN', 'Personal Access Token', 'Personal Access']) || '';
+const owner = findEnvValue(['VITE_GITHUB_OWNER', 'GitHub Tài khoản', 'GitHub Tai khoan', 'GITHUB_OWNER', 'GITHUB_USER', 'CEOHomes']) || '';
+const repoName = findEnvValue(['VITE_GITHUB_REPO_NAME', 'Tên repository (Tên kho)', 'Ten repository', 'Tên repository', 'GITHUB_REPO_NAME', 'CV-TQT']) || '';
+const combinedRepo = findEnvValue(['VITE_GITHUB_REPO', 'GITHUB_REPO', 'GitHub repository']) || (owner && repoName ? `${owner}/${repoName}` : '');
 
 export default defineConfig({
   plugins: [react()],
