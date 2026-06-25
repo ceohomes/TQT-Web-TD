@@ -4,8 +4,10 @@ import { createClient } from '@supabase/supabase-js';
 // Đọc Supabase config từ URL query params hoặc localStorage
 function getSupabaseClient() {
   const params = new URLSearchParams(window.location.search);
-  const url = params.get('sb_url') || localStorage.getItem('sb_url') || import.meta.env.VITE_SUPABASE_URL || '';
-  const key = params.get('sb_key') || localStorage.getItem('sb_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+  const defaultUrl = 'https://aelxgbnkyqpeckzknemv.supabase.co';
+  const defaultKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFlbHhnYm5reXFwZWNremtuZW12Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzMxOTI5NDcsImV4cCI6MjA4ODc2ODk0N30.8jL7qazYaSsC5ebKVwda623CC8ObGWj5-5yHiVJhAZg';
+  const url = params.get('sb_url') || localStorage.getItem('sb_url') || import.meta.env.VITE_SUPABASE_URL || defaultUrl;
+  const key = params.get('sb_key') || localStorage.getItem('sb_key') || import.meta.env.VITE_SUPABASE_ANON_KEY || defaultKey;
   if (url && key) return createClient(url, key);
   return null;
 }

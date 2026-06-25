@@ -96,6 +96,7 @@ const EMPTY_CANDIDATE: Omit<Candidate, 'id'> = {
   tqt_interview: '',
   recruitment_status: '',
   highlight_color: '',
+  result_date: '',
   notes: '',
   cv_url: '',
 };
@@ -632,7 +633,7 @@ const isValidPhone = (phone: string) => {
 };
 
 function CandidateModal({
-  candidate, onClose, onSave, mode, groups, statuses, referrers, recruiters, onViewCV
+  candidate, onClose, onSave, mode, groups, statuses, referrers, recruiters, onViewCV, onDelete
 }: {
   candidate: Partial<Candidate>;
   onClose: () => void;
@@ -643,6 +644,7 @@ function CandidateModal({
   referrers: Referrer[];
   recruiters: Recruiter[];
   onViewCV?: (url: string, name: string) => void;
+  onDelete?: (id: string) => void;
 }) {
   const [rows, setRows] = useState<Partial<Candidate>[]>(
     mode === 'add' ? [candidate] : [candidate]
@@ -668,17 +670,21 @@ function CandidateModal({
     try {
       let ghToken = localStorage.getItem('gh_token') || import.meta.env.VITE_GITHUB_TOKEN || '';
       let ghOwner = localStorage.getItem('gh_owner') || '';
-      let ghRepo = localStorage.getItem('gh_repo') || '';
-
-      const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
-      if (envRepo && envRepo.includes('/')) {
-        const parts = envRepo.split('/');
-        if (!ghOwner) ghOwner = parts[0]?.trim();
-        if (!ghRepo) ghRepo = parts[1]?.trim();
-      } else if (envRepo) {
-        ghRepo = envRepo;
+      if (!ghOwner) {
+        const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+        if (envRepo && envRepo.includes('/')) {
+          ghOwner = envRepo.split('/')[0]?.trim() || '';
+        }
       }
-
+      let ghRepo = localStorage.getItem('gh_repo') || '';
+      if (!ghRepo) {
+        const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
+        if (envRepo && envRepo.includes('/')) {
+          ghRepo = envRepo.split('/')[1]?.trim() || '';
+        } else {
+          ghRepo = envRepo || '';
+        }
+      }
       const ghBranch = localStorage.getItem('gh_branch') || 'main';
       const ghPath = localStorage.getItem('gh_path') || 'cvs';
 
@@ -800,7 +806,7 @@ function CandidateModal({
     e.preventDefault();
 
     const BULK_FIELDS: (keyof Candidate)[] = [
-      'referral_date', 'send_bch_date', 'interview_date', 'full_name', 'birth_year', 'phone', 
+      'referral_date', 'send_bch_date', 'interview_date', 'full_name', 'result_date', 'birth_year', 'phone', 
       'experience', 'position', 'desired_location', 'referrer', 'recruiter', 
       'tqt_interview', 'recruitment_status', 'notes'
     ];
@@ -827,7 +833,7 @@ function CandidateModal({
           if (fieldIdx < BULK_FIELDS.length) {
             const fieldKey = BULK_FIELDS[fieldIdx];
             let val = cellVal.trim();
-            if (fieldKey === 'referral_date' || fieldKey === 'send_bch_date' || fieldKey === 'interview_date') {
+            if (fieldKey === 'referral_date' || fieldKey === 'send_bch_date' || fieldKey === 'interview_date' || fieldKey === 'result_date') {
               val = formatDateInput(val);
             }
             row[fieldKey] = val as any;
@@ -853,38 +859,87 @@ function CandidateModal({
 
   if (mode === 'edit') {
     const highlight = HIGHLIGHT_COLORS.find(c => c.key === form.highlight_color) || HIGHLIGHT_COLORS[0];
+    
+    const groupColors = [
+      { bg: '#fff3e0', border: '#f97316', text: '#7c2d00', dot: '#f97316', stripe: 'rgba(249,115,22,0.08)' },
+      { bg: '#e8f5e9', border: '#22c55e', text: '#14532d', dot: '#22c55e', stripe: 'rgba(34,197,94,0.08)' },
+      { bg: '#ede9fe', border: '#8b5cf6', text: '#4c1d95', dot: '#8b5cf6', stripe: 'rgba(139,92,246,0.08)' },
+      { bg: '#fce4ec', border: '#f43f5e', text: '#881337', dot: '#f43f5e', stripe: 'rgba(244,63,94,0.08)' },
+      { bg: '#e0f2fe', border: '#0ea5e9', text: '#0c4a6e', dot: '#0ea5e9', stripe: 'rgba(14,165,233,0.08)' },
+      { bg: '#fef9c3', border: '#eab308', text: '#713f12', dot: '#eab308', stripe: 'rgba(234,179,8,0.08)' },
+    ];
+    const groupIndex = groups.findIndex(g => g.code === form.group_type) + 1;
+    const groupColor = groupIndex > 0 ? (groupColors[(groupIndex - 1) % groupColors.length] || groupColors[0]) : null;
+
+    const statusColorBg = form.recruitment_status ? (statuses.find(s => s.name === form.recruitment_status)?.color_bg || getAutoBgColor(form.recruitment_status)) : null;
+
     return (
       <div className="modal-overlay">
-        <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl">
+        <div className="modal-content bg-white rounded-2xl w-full max-w-3xl max-h-[92vh] overflow-hidden shadow-2xl flex flex-col">
           {/* Header */}
           <div className="px-7 py-5 border-b border-slate-100 flex items-center justify-between" style={{ background: 'linear-gradient(135deg, #1a3a6b 0%, #1e4480 100%)' }}>
             <div className="flex items-center gap-3">
               <div className="p-2 bg-white/15 rounded-xl">
                 <Edit2 size={18} className="text-white" />
               </div>
-              <div>
-                <h3 className="text-white font-black text-base uppercase tracking-tight">Chỉnh sửa ứng viên</h3>
-                <p className="text-blue-200 text-xs mt-0.5">{form.full_name || 'Điền thông tin bên dưới'}</p>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h3 className="text-white/80 font-black text-xs uppercase tracking-wider">Chỉnh sửa ứng viên</h3>
+                <span className="text-white/30 font-light text-base hidden sm:inline">|</span>
+                <span className="text-amber-300 font-black text-xl tracking-tight uppercase">{form.full_name || ''}</span>
               </div>
             </div>
             <button onClick={onClose} className="p-2 text-blue-200 hover:text-white transition-colors"><X size={18} /></button>
           </div>
 
           {/* Body */}
-          <div className="p-6 overflow-y-auto max-h-[calc(92vh-140px)] space-y-5">
+          <div className="p-6 overflow-y-auto flex-1 space-y-5">
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Nhóm <span className="text-red-500">*</span></label>
-                <select value={form.group_type} onChange={e => set('group_type', e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
-                  <option value="">-- Chọn nhóm --</option>
-                  {groups.map(g => <option key={g.id} value={g.code}>{g.name}</option>)}
+                <select 
+                  value={form.group_type} 
+                  onChange={e => set('group_type', e.target.value)}
+                  style={groupColor ? {
+                    backgroundColor: groupColor.bg,
+                    borderColor: groupColor.border,
+                    color: groupColor.text,
+                    fontWeight: 700
+                  } : {}}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer"
+                >
+                  <option value="" className="bg-white text-slate-800 font-medium">-- Chọn nhóm --</option>
+                  {groups.map(g => (
+                    <option key={g.id} value={g.code} className="bg-white text-slate-800 font-medium">
+                      {g.name}
+                    </option>
+                  ))}
                 </select>
               </div>
-              <div className="col-span-2 space-y-1.5">
+              <div className="space-y-1.5">
                 <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tên ứng viên <span className="text-red-500">*</span></label>
                 <input value={form.full_name || ''} onChange={e => set('full_name', e.target.value)}
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all" />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tình trạng</label>
+                <select 
+                  value={form.recruitment_status || ''} 
+                  onChange={e => set('recruitment_status', e.target.value)}
+                  style={statusColorBg ? {
+                    backgroundColor: statusColorBg,
+                    borderColor: statusColorBg,
+                    color: '#000000',
+                    fontWeight: 700
+                  } : {}}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer"
+                >
+                  <option value="" className="bg-white text-slate-800 font-medium">-- Chọn --</option>
+                  {statuses.map(s => (
+                    <option key={s.id} value={s.name} className="bg-white text-slate-800 font-medium">
+                      {s.name}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
 
@@ -983,7 +1038,28 @@ function CandidateModal({
                   className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Người giới thiệu</label>
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest min-h-[36px] flex items-end pb-1 leading-tight">Ngày trả kết quả</label>
+                <input 
+                  type="date"
+                  value={convertToYYYYMMDD(form.result_date)} 
+                  onChange={e => set('result_date', convertToDDMMYYYY(e.target.value))}
+                  onClick={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onFocus={e => {
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  onKeyDown={e => {
+                    e.preventDefault();
+                    try { e.currentTarget.showPicker(); } catch (err) {}
+                  }}
+                  className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 transition-all cursor-pointer" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Người giới thiệu</label>
                 <select 
                   value={form.referrer || ''} 
                   onChange={e => set('referrer', e.target.value)}
@@ -991,17 +1067,6 @@ function CandidateModal({
                 >
                   <option value="">-- Chọn người giới thiệu --</option>
                   {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
-                </select>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-3 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-[11px] font-black text-slate-700 uppercase tracking-widest">Tình trạng</label>
-                <select value={form.recruitment_status || ''} onChange={e => set('recruitment_status', e.target.value)}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 outline-none focus:border-blue-500 bg-white transition-all">
-                  <option value="">-- Chọn --</option>
-                  {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
                 </select>
               </div>
               <div className="space-y-1.5">
@@ -1099,25 +1164,38 @@ function CandidateModal({
           </div>
 
           {/* Footer */}
-          <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-slate-50">
-            <button onClick={onClose} className="px-6 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-all">Hủy</button>
-            <button 
-              onClick={() => {
-                if (form.phone && !isValidPhone(form.phone)) {
-                  // Just prevent save or let it pass? 
-                  // Usually it's better to prevent save if invalid.
-                  return;
-                }
-                onSave(form);
-              }} 
-              disabled={form.phone ? !isValidPhone(form.phone) : false}
-              className={cn(
-                "px-8 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white font-black text-sm transition-all shadow-lg flex items-center gap-2",
-                form.phone && !isValidPhone(form.phone) ? "opacity-50 cursor-not-allowed grayscale" : "hover:from-blue-700 hover:to-blue-900"
+          <div className="px-6 pt-4 pb-6 border-t border-slate-100 flex justify-between items-center bg-slate-50">
+            <div>
+              {onDelete && form.id && (
+                <button 
+                  type="button"
+                  onClick={() => onDelete(form.id!)}
+                  className="px-5 py-2.5 rounded-xl border-2 border-red-100 text-red-600 font-bold text-sm hover:bg-red-50 hover:border-red-400 transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  <Trash2 size={15} /> Xóa ứng viên
+                </button>
               )}
-            >
-              <Save size={15} /> Lưu thay đổi
-            </button>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={onClose} className="px-6 py-2.5 rounded-xl border-2 border-slate-200 text-slate-600 font-bold text-sm hover:bg-slate-100 transition-all cursor-pointer">Hủy</button>
+              <button 
+                onClick={() => {
+                  if (form.phone && !isValidPhone(form.phone)) {
+                    // Just prevent save or let it pass? 
+                    // Usually it's better to prevent save if invalid.
+                    return;
+                  }
+                  onSave(form);
+                }} 
+                disabled={form.phone ? !isValidPhone(form.phone) : false}
+                className={cn(
+                  "px-8 py-2.5 rounded-xl bg-gradient-to-br from-blue-600 to-blue-800 text-white font-black text-sm transition-all shadow-lg flex items-center gap-2 cursor-pointer",
+                  form.phone && !isValidPhone(form.phone) ? "opacity-50 cursor-not-allowed grayscale" : "hover:from-blue-700 hover:to-blue-900"
+                )}
+              >
+                <Save size={15} /> Lưu thay đổi
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1175,9 +1253,10 @@ function CandidateModal({
                   <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
                   <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
                   <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày phỏng vấn</th>
+                  <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày trả kết quả</th>
                   <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                   <th style={{ width: 80 }}>Năm sinh</th>
-                  <th style={{ width: 120 }}>SĐT</th>
+                  <th style={{ width: 120, minWidth: 120, maxWidth: 120 }}>SĐT</th>
                   <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                   <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                   <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
@@ -1247,6 +1326,24 @@ function CandidateModal({
                         data-field="interview_date" data-row-idx={idx}
                         className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
                     </td>
+                    <td className="p-1 border-r border-slate-300" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>
+                      <input 
+                        type="date"
+                        value={convertToYYYYMMDD(row.result_date)} 
+                        onChange={e => updateRow(idx, 'result_date', convertToDDMMYYYY(e.target.value))}
+                        onClick={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onFocus={e => {
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        onKeyDown={e => {
+                          e.preventDefault();
+                          try { e.currentTarget.showPicker(); } catch (err) {}
+                        }}
+                        data-field="result_date" data-row-idx={idx}
+                        className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px] cursor-pointer" />
+                    </td>
                     <td className="p-1 border-r border-slate-300">
                       <input value={row.full_name || ''} onChange={e => updateRow(idx, 'full_name', e.target.value)}
                         data-field="full_name" data-row-idx={idx}
@@ -1257,7 +1354,7 @@ function CandidateModal({
                         data-field="birth_year" data-row-idx={idx}
                         className="w-full bg-transparent outline-none px-2 py-1.5 text-center focus:bg-white focus:shadow-inner rounded text-[12px]" placeholder="19xx" />
                     </td>
-                    <td className="p-1 border-r border-slate-300 relative group/phone">
+                    <td className="p-1 border-r border-slate-300 relative group/phone" style={{ width: 120, minWidth: 120, maxWidth: 120 }}>
                       <input value={row.phone || ''} onChange={e => updateRow(idx, 'phone', e.target.value)}
                         data-field="phone" data-row-idx={idx}
                         className={cn(
@@ -2801,8 +2898,6 @@ export default function App() {
   useEffect(() => {
     if (!sb) {
       setLoading(false);
-      const url = localStorage.getItem('sb_url');
-      if (!url) setShowSettings(true);
       return;
     }
     loadData();
@@ -2980,6 +3075,7 @@ export default function App() {
       const { error } = await sb.from('candidates').delete().eq('id', deleteId);
       if (error) throw error;
       setDeleteId(null);
+      setModal(null);
       showToast('✅ Đã xóa ứng viên', 'success');
       await loadData();
     } catch (e: any) {
@@ -2987,10 +3083,62 @@ export default function App() {
     }
   };
 
+  // Extract unique values dynamically from candidates data to ensure dropdowns match column data exactly
+  const uniqueRecruiters = React.useMemo(() => {
+    const set = new Set<string>();
+    candidates.forEach(c => {
+      if (c.recruiter) {
+        const trimmed = c.recruiter.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    });
+    recruiters.forEach(r => {
+      if (r.name) {
+        const trimmed = r.name.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [candidates, recruiters]);
+
+  const uniqueReferrers = React.useMemo(() => {
+    const set = new Set<string>();
+    candidates.forEach(c => {
+      if (c.referrer) {
+        const trimmed = c.referrer.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    });
+    referrers.forEach(r => {
+      if (r.name) {
+        const trimmed = r.name.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [candidates, referrers]);
+
+  const uniqueTqtInterviews = React.useMemo(() => {
+    const set = new Set<string>();
+    candidates.forEach(c => {
+      if (c.tqt_interview) {
+        const trimmed = c.tqt_interview.trim();
+        if (trimmed) set.add(trimmed);
+      }
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, 'vi'));
+  }, [candidates]);
+
   // ── Filter & Search ──
   const filtered = candidates.filter(c => {
     if (filterGroup && c.group_type !== filterGroup) return false;
-    if (filterStatus && c.recruitment_status !== filterStatus) return false;
+    if (filterStatus) {
+      if (filterStatus === 'Chưa xác định') {
+        if (c.recruitment_status && c.recruitment_status !== 'Chưa xác định') return false;
+      } else {
+        if (c.recruitment_status !== filterStatus) return false;
+      }
+    }
     if (filterReferrer && c.referrer !== filterReferrer) return false;
     if (filterRecruiter && c.recruiter !== filterRecruiter) return false;
     if (filterTqtInterview && c.tqt_interview !== filterTqtInterview) return false;
@@ -3088,6 +3236,7 @@ export default function App() {
         { header: 'Ngày giới thiệu', key: 'referral_date', width: 15 },
         { header: 'Ngày gửi BCH/ Phòng Nhân sự', key: 'send_bch_date', width: 20 },
         { header: 'Ngày phỏng vấn', key: 'interview_date', width: 15 },
+        { header: 'Ngày trả kết quả', key: 'result_date', width: 15 },
         { header: 'Tên ứng viên', key: 'full_name', width: 25 },
         { header: 'Năm sinh', key: 'birth_year', width: 10 },
         { header: 'SĐT', key: 'phone', width: 15 },
@@ -3179,6 +3328,7 @@ export default function App() {
           send_bch_date: formatReferralDate(c.send_bch_date),
           interview_date: formatReferralDate(c.interview_date),
           full_name: c.full_name || '',
+          result_date: formatReferralDate(c.result_date),
           birth_year: c.birth_year || '',
           phone: c.phone || '',
           experience: c.experience || '',
@@ -3204,23 +3354,23 @@ export default function App() {
             right: { style: 'thin', color: { argb: 'FFCBD5E1' } }
           };
 
-          if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 4 || colNumber === 6 || colNumber === 7 || colNumber === 14 || colNumber === 15) { // STT, Ngày giới thiệu, Ngày gửi BCH, Ngày phỏng vấn, Năm sinh, SĐT, Tình trạng, CV
+          if (colNumber === 1 || colNumber === 2 || colNumber === 3 || colNumber === 4 || colNumber === 5 || colNumber === 7 || colNumber === 8 || colNumber === 15 || colNumber === 16) { // STT, Ngày giới thiệu, Ngày gửi BCH, Ngày trả kết quả, Ngày phỏng vấn, Năm sinh, SĐT, Tình trạng, CV
             cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
           }
           
           if (colNumber === 1) { // STT
             cell.font = { bold: true, color: { argb: 'FF1E40AF' } };
           }
-          if (colNumber === 5) { // Tên ứng viên
+          if (colNumber === 6) { // Tên ứng viên
             cell.font = { bold: true, color: { argb: 'FF1E293B' } };
           }
-          if (colNumber === 15 && c.cv_url) { // CV Ứng viên
+          if (colNumber === 16 && c.cv_url) { // CV Ứng viên
             cell.value = { text: 'Xem CV', hyperlink: c.cv_url };
             cell.font = { size: 11, name: 'Arial', color: { argb: 'FF2563EB' }, underline: true };
           }
 
           // Style status cell
-          if (colNumber === 14 && c.recruitment_status) {
+          if (colNumber === 15 && c.recruitment_status) {
             const dbColor = statuses.find(s => s.name === c.recruitment_status)?.color_bg;
             const rawColor = dbColor || getAutoBgColor(c.recruitment_status);
             // Normalize hex: expand 3-digit (#abc -> #aabbcc) and strip #
@@ -3412,11 +3562,8 @@ export default function App() {
               <Paperclip size={16} /> Tài liệu đính kèm
             </button>
           </nav>
-          <div className="mt-auto pt-6 border-t border-white/10">
-            <button onClick={() => { setShowSettings(true); setIsSidebarOpen(false); }}
-              className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium text-blue-200 hover:bg-white/10 transition-all">
-              <Settings size={16} /> Cấu hình Supabase
-            </button>
+          <div className="mt-auto pt-6 border-t border-white/10 text-center text-xs text-blue-300/40">
+            SGC – Phòng TQT
           </div>
         </div>
       </aside>
@@ -3439,9 +3586,6 @@ export default function App() {
             <span className={cn('w-1.5 h-1.5 rounded-full', isConnected ? 'bg-emerald-400' : 'bg-red-400')} />
             {isConnected ? 'Đã kết nối' : 'Chưa kết nối'}
           </div>
-          <button onClick={() => setShowSettings(true)} className="p-2 bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all">
-            <Settings size={15} />
-          </button>
         </div>
       </header>
 
@@ -3468,7 +3612,7 @@ export default function App() {
 
         {/* ── List View ── */}
         {activeView === 'list' && (
-          <div className="p-4 md:p-6 space-y-3">
+          <div className="p-4 md:p-6 space-y-3 w-full max-w-full">
             {/* Row 1: Title + Filters + Toolbar combined */}
             <div className="bg-[#fffdf0] border border-orange-100 rounded-2xl px-5 py-3 flex flex-row flex-nowrap items-center justify-between gap-4 shadow-sm font-roboto overflow-x-auto scrollbar-thin">
               {/* Left Group (Title + Filters) */}
@@ -3491,19 +3635,11 @@ export default function App() {
                     </select>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Tình trạng</label>
-                    <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setPage(1); }}
-                      className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[160px] shadow-sm cursor-pointer hover:border-orange-300">
-                      <option value="">Tất cả tình trạng</option>
-                      {statuses.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    </select>
-                  </div>
-                  <div className="space-y-1">
                     <label className="text-[10px] font-bold text-orange-800/60 uppercase tracking-wider block ml-1">Người giới thiệu</label>
                     <select value={filterReferrer} onChange={e => { setFilterReferrer(e.target.value); setPage(1); }}
                       className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
                       <option value="">Tất cả người giới thiệu</option>
-                      {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      {uniqueReferrers.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -3511,7 +3647,7 @@ export default function App() {
                     <select value={filterRecruiter} onChange={e => { setFilterRecruiter(e.target.value); setPage(1); }}
                       className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
                       <option value="">Tất cả nhân sự</option>
-                      {recruiters.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      {uniqueRecruiters.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                   </div>
                   <div className="space-y-1">
@@ -3519,7 +3655,7 @@ export default function App() {
                     <select value={filterTqtInterview} onChange={e => { setFilterTqtInterview(e.target.value); setPage(1); }}
                       className="h-10 border border-orange-200/50 rounded-xl px-3 text-[12px] font-medium text-slate-700 outline-none focus:border-orange-400 bg-white transition-all min-w-[140px] shadow-sm cursor-pointer hover:border-orange-300">
                       <option value="">Tất cả nhân sự</option>
-                      {referrers.map(r => <option key={r.id} value={r.name}>{r.name}</option>)}
+                      {uniqueTqtInterviews.map(name => <option key={name} value={name}>{name}</option>)}
                     </select>
                   </div>
                 </div>
@@ -3563,24 +3699,43 @@ export default function App() {
               <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
                 {statuses.map(s => {
                   const count = statusCounts[s.name] || 0;
-                  if (count === 0) return null;
+                  if (count === 0 && filterStatus !== s.name) return null;
+                  const isActive = filterStatus === s.name;
+                  const isAnyActive = !!filterStatus;
                   return (
-                    <div key={s.id} className="flex items-center whitespace-nowrap">
-                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg shadow-sm flex items-center gap-2 border border-black/5" style={{ backgroundColor: s.color_bg || getAutoBgColor(s.name) }}>
+                    <button
+                      key={s.id}
+                      onClick={() => {
+                        setFilterStatus(prev => prev === s.name ? '' : s.name);
+                        setPage(1);
+                      }}
+                      className={`flex items-center whitespace-nowrap transition-all duration-200 hover:scale-[1.03] active:scale-95 cursor-pointer rounded-lg ${
+                        isAnyActive && !isActive ? 'opacity-40 hover:opacity-100 scale-95' : 'opacity-100'
+                      } ${isActive ? 'ring-2 ring-slate-800 ring-offset-2 scale-[1.03] shadow-md font-extrabold' : 'shadow-sm'}`}
+                    >
+                      <span className="text-[10px] font-black text-slate-800 uppercase tracking-wider px-3 py-1.5 rounded-lg flex items-center gap-2 border border-black/5" style={{ backgroundColor: s.color_bg || getAutoBgColor(s.name) }}>
                         {s.name}
                         <span className="text-xs font-black text-black bg-white/60 px-2 py-0.5 rounded-full">{count}</span>
                       </span>
-                    </div>
+                    </button>
                   );
                 })}
-                {statusCounts['Chưa xác định'] > 0 && (
-                  <div className="flex items-center whitespace-nowrap">
-                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 shadow-sm flex items-center gap-2 border border-black/5">
+                {statusCounts['Chưa xác định'] > 0 || filterStatus === 'Chưa xác định' ? (
+                  <button
+                    onClick={() => {
+                      setFilterStatus(prev => prev === 'Chưa xác định' ? '' : 'Chưa xác định');
+                      setPage(1);
+                    }}
+                    className={`flex items-center whitespace-nowrap transition-all duration-200 hover:scale-[1.03] active:scale-95 cursor-pointer rounded-lg ${
+                      !!filterStatus && filterStatus !== 'Chưa xác định' ? 'opacity-40 hover:opacity-100 scale-95' : 'opacity-100'
+                    } ${filterStatus === 'Chưa xác định' ? 'ring-2 ring-slate-800 ring-offset-2 scale-[1.03] shadow-md' : 'shadow-sm'}`}
+                  >
+                    <span className="text-[10px] font-black text-slate-600 uppercase tracking-wider px-3 py-1.5 rounded-lg bg-slate-200 flex items-center gap-2 border border-black/5">
                       Chưa xác định
-                      <span className="text-xs font-black text-black bg-white/60 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định']}</span>
+                      <span className="text-xs font-black text-black bg-white/60 px-2 py-0.5 rounded-full">{statusCounts['Chưa xác định'] || 0}</span>
                     </span>
-                  </div>
-                )}
+                  </button>
+                ) : null}
               </div>
             </div>
 
@@ -3589,12 +3744,8 @@ export default function App() {
               <div className="bg-amber-50 border-2 border-amber-200 rounded-2xl p-6 flex items-center gap-4">
                 <Key size={32} className="text-amber-500 shrink-0" />
                 <div>
-                  <p className="font-black text-amber-800 text-base">Chưa cấu hình Supabase</p>
-                  <p className="text-amber-600 text-sm mt-1">Vui lòng cấu hình URL và API key để kết nối database.</p>
-                  <button onClick={() => setShowSettings(true)}
-                    className="mt-3 px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-sm font-black transition-all">
-                    Cấu hình ngay
-                  </button>
+                  <p className="font-black text-amber-800 text-base">Chưa kết nối Supabase</p>
+                  <p className="text-amber-600 text-sm mt-1">Vui lòng kiểm tra lại kết nối mạng hoặc thông tin cấu hình.</p>
                 </div>
               </div>
             )}
@@ -3609,7 +3760,7 @@ export default function App() {
             {/* ── Table ── */}
             {!loading && sb && (
               <>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-400">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-400 overflow-auto w-full max-h-[calc(100vh-340px)]">
                   <table className="data-table">
                       <thead>
                         <tr>
@@ -3617,9 +3768,10 @@ export default function App() {
                           <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày giới thiệu</th>
                           <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày gửi BCH/ Phòng Nhân sự</th>
                           <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày phỏng vấn</th>
+                          <th style={{ width: 90, minWidth: 90, maxWidth: 90, whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: '1.2' }}>Ngày trả kết quả</th>
                           <th style={{ minWidth: 140 }}>Tên ứng viên</th>
                           <th style={{ width: 80 }}>Năm sinh</th>
-                          <th style={{ width: 120 }}>SĐT</th>
+                          <th style={{ width: 120, minWidth: 120, maxWidth: 120 }}>SĐT</th>
                           <th style={{ minWidth: 200 }}>Kinh nghiệm/Năng lực</th>
                           <th style={{ minWidth: 200 }}>Vị trí ứng tuyển</th>
                           <th style={{ minWidth: 220 }}>Địa điểm mong muốn làm việc</th>
@@ -3629,7 +3781,7 @@ export default function App() {
                           <th style={{ width: 140, minWidth: 140, maxWidth: 140 }}>Tình trạng</th>
                           <th style={{ width: 100, minWidth: 100, maxWidth: 100 }}>CV Ứng viên</th>
                           <th style={{ minWidth: 200 }}>Ghi chú</th>
-                          <th style={{ width: 80 }}>Thao tác</th>
+                          
                         </tr>
                       </thead>
                       <tbody>
@@ -3681,9 +3833,10 @@ export default function App() {
                                   <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.referral_date)}</td>
                                   <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.send_bch_date)}</td>
                                   <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.interview_date)}</td>
-                                  <td className="font-semibold">{c.full_name}</td>
+                                  <td className="text-center text-xs" style={{ width: 90, minWidth: 90, maxWidth: 90 }}>{formatReferralDate(c.result_date)}</td>
+                                  <td className="font-bold text-blue-600 hover:text-blue-800 hover:underline cursor-pointer" onClick={() => setModal({ type: 'edit', candidate: { ...c } })} title="Nhấp để xem chi tiết & chỉnh sửa">{c.full_name}</td>
                                   <td className="text-center">{c.birth_year}</td>
-                                  <td className="text-center">{c.phone}</td>
+                                  <td className="text-center" style={{ width: 120, minWidth: 120, maxWidth: 120 }}>{c.phone}</td>
                                   <td>{c.experience}</td>
                                   <td>{c.position}</td>
                                   <td>{c.desired_location}</td>
@@ -3713,7 +3866,7 @@ export default function App() {
                                     )}
                                   </td>
                                   <td className="text-xs text-slate-800 font-medium" style={{ whiteSpace: 'normal', wordBreak: 'break-word', minWidth: 200 }}>{c.notes}</td>
-                                  <td>
+                                  <td className="hidden">
                                     <div className="flex items-center justify-center gap-1">
                                       <button onClick={() => setModal({ type: 'edit', candidate: { ...c } })}
                                         className="p-1.5 bg-blue-50 text-blue-600 rounded-lg hover:bg-blue-600 hover:text-white transition-all" title="Sửa">
@@ -3775,9 +3928,8 @@ export default function App() {
       </footer>
 
       {/* Modals */}
-      {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onSave={handleSaveSettings} />}
       {showQRModal && <QRModal groups={groups} onClose={() => setShowQRModal(false)} />}
-      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} onViewCV={(url, name) => setCvViewer({ url, title: name })} />}
+      {modal && <CandidateModal candidate={modal.candidate} mode={modal.type} onClose={() => setModal(null)} onSave={handleSave} groups={groups} statuses={statuses} referrers={referrers} recruiters={recruiters} onViewCV={(url, name) => setCvViewer({ url, title: name })} onDelete={setDeleteId} />}
       {deleteId && <ConfirmDeleteModal name={deleteTarget?.full_name || ''} onConfirm={handleDelete} onClose={() => setDeleteId(null)} />}
       {cvViewer && <CVViewerModal url={cvViewer.url} candidateName={cvViewer.title} onClose={() => setCvViewer(null)} />}
 

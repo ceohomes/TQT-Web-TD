@@ -47,6 +47,7 @@ export interface Candidate {
   recruitment_status?: string; // Tình trạng tuyển dụng
   tqt_interview?: string;     // TQT Phỏng vấn
   highlight_color?: string; // Màu highlight (green, blue, yellow, red, orange)
+  result_date?: string;     // Ngày trả kết quả
   notes?: string;         // Ghi chú
   cv_url?: string;        // Đường dẫn CV / link file PDF
   created_at?: string;
