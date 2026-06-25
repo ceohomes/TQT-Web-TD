@@ -1,38 +1,67 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Helper to look up environment variables in a case-insensitive, space-flexible way
+// Helper to strip diacritics, spaces, and non-alphanumeric characters for robust comparison
+function removeDiacriticsAndSpaces(str: string): string {
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/[đĐ]/g, 'd')
+    .toLowerCase()
+    .replace(/\s+/g, '') // remove spaces
+    .replace(/[^a-z0-9]/g, ''); // remove non-alphanumeric characters
+}
+
+// Helper to look up environment variables in a case-insensitive, space-flexible, and diacritics-insensitive way
 function findEnvValue(possibleKeys: string[]): string {
+  // 1. Try exact keys first
   for (const key of possibleKeys) {
     if (process.env[key] !== undefined) {
       return process.env[key] as string;
     }
   }
-  // Also try partial matches on keys (case-insensitive)
-  for (const envKey of Object.keys(process.env)) {
-    const lowerEnvKey = envKey.toLowerCase();
-    for (const key of possibleKeys) {
-      const lowerKey = key.toLowerCase();
-      if (lowerEnvKey.includes(lowerKey)) {
+
+  const envKeys = Object.keys(process.env);
+
+  // 2. Try case-insensitive exact match
+  for (const key of possibleKeys) {
+    const lowerKey = key.toLowerCase();
+    for (const envKey of envKeys) {
+      if (envKey.toLowerCase() === lowerKey) {
         return process.env[envKey] as string;
       }
     }
   }
+
+  // 3. Try normalized (accentless, spaceless) matching
+  const normalizedPossibles = possibleKeys.map(removeDiacriticsAndSpaces).filter(Boolean);
+  for (const envKey of envKeys) {
+    const normalizedEnvKey = removeDiacriticsAndSpaces(envKey);
+    if (!normalizedEnvKey) continue;
+
+    for (const normPossible of normalizedPossibles) {
+      // Match if one contains the other (e.g. "tenrepositorytenkho" contains "tenrepository")
+      if (normalizedEnvKey.includes(normPossible) || normPossible.includes(normalizedEnvKey)) {
+        return process.env[envKey] as string;
+      }
+    }
+  }
+
   return '';
 }
+
+const token = findEnvValue(['GitHub Personal Access Token', 'GITHUB_TOKEN', 'VITE_GITHUB_TOKEN', 'Personal Access Token', 'Personal Access']) || '';
+const owner = findEnvValue(['GitHub Tài khoản', 'GitHub Tai khoan', 'GITHUB_OWNER', 'GITHUB_USER', 'CEOHomes']) || '';
+const repoName = findEnvValue(['Tên repository (Tên kho)', 'Ten repository', 'Tên repository', 'GITHUB_REPO_NAME', 'GITHUB_REPO', 'CV-TQT']) || '';
+const combinedRepo = findEnvValue(['GITHUB_REPO', 'GitHub repository']) || (owner && repoName ? `${owner}/${repoName}` : '');
 
 export default defineConfig({
   plugins: [react()],
   define: {
-    'import.meta.env.VITE_GITHUB_TOKEN': JSON.stringify(
-      findEnvValue(['GitHub Personal Access Token', 'GITHUB_TOKEN', 'VITE_GITHUB_TOKEN', 'Personal Access Token', 'Personal Access']) || ''
-    ),
-    'import.meta.env.VITE_GITHUB_OWNER': JSON.stringify(
-      findEnvValue(['GitHub Tài khoản', 'GitHub Tai khoan', 'GITHUB_OWNER', 'GITHUB_USER', 'CEOHomes']) || ''
-    ),
-    'import.meta.env.VITE_GITHUB_REPO_NAME': JSON.stringify(
-      findEnvValue(['Tên repository (Tên kho)', 'Ten repository', 'Tên repository', 'GITHUB_REPO', 'CV-TQT']) || ''
-    ),
+    'import.meta.env.VITE_GITHUB_TOKEN': JSON.stringify(token),
+    'import.meta.env.VITE_GITHUB_OWNER': JSON.stringify(owner),
+    'import.meta.env.VITE_GITHUB_REPO_NAME': JSON.stringify(repoName),
+    'import.meta.env.VITE_GITHUB_REPO': JSON.stringify(combinedRepo),
   },
   server: {
     // Cho phép SPA routing trong dev

@@ -142,6 +142,8 @@ function SettingsModal({ onClose, onSave }: {
   const [ghOwner, setGhOwner] = useState(() => {
     const localOwner = localStorage.getItem('gh_owner');
     if (localOwner) return localOwner;
+    const envOwner = import.meta.env.VITE_GITHUB_OWNER || '';
+    if (envOwner) return envOwner;
     const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
     if (envRepo && envRepo.includes('/')) {
       return envRepo.split('/')[0]?.trim() || '';
@@ -151,6 +153,8 @@ function SettingsModal({ onClose, onSave }: {
   const [ghRepo, setGhRepo] = useState(() => {
     const localRepo = localStorage.getItem('gh_repo');
     if (localRepo) return localRepo;
+    const envRepoName = import.meta.env.VITE_GITHUB_REPO_NAME || '';
+    if (envRepoName) return envRepoName;
     const envRepo = import.meta.env.VITE_GITHUB_REPO || '';
     if (envRepo && envRepo.includes('/')) {
       return envRepo.split('/')[1]?.trim() || '';
@@ -444,19 +448,27 @@ function SettingsModal({ onClose, onSave }: {
                     {import.meta.env.VITE_GITHUB_TOKEN ? (
                       <span className="text-emerald-400 font-bold">✅ Đã tải thành công</span>
                     ) : (
-                      <span className="text-amber-400 font-semibold">Chưa có (hãy dán trực tiếp để test)</span>
+                      <span className="text-amber-400 font-semibold">Chưa có</span>
+                    )}
+                  </div>
+                  <div className="flex justify-between border-b border-white/5 py-1">
+                    <span>Tài khoản từ Cloudflare:</span>
+                    {import.meta.env.VITE_GITHUB_OWNER ? (
+                      <span className="text-emerald-400 font-bold">✅ {import.meta.env.VITE_GITHUB_OWNER}</span>
+                    ) : (
+                      <span className="text-amber-400 font-semibold">Chưa có</span>
                     )}
                   </div>
                   <div className="flex justify-between pt-1">
                     <span>Tên Repo từ Cloudflare:</span>
-                    {import.meta.env.VITE_GITHUB_REPO ? (
-                      <span className="text-emerald-400 font-bold">✅ {import.meta.env.VITE_GITHUB_REPO}</span>
+                    {import.meta.env.VITE_GITHUB_REPO_NAME ? (
+                      <span className="text-emerald-400 font-bold">✅ {import.meta.env.VITE_GITHUB_REPO_NAME}</span>
                     ) : (
-                      <span className="text-amber-400 font-semibold">Chưa có (hãy dán trực tiếp để test)</span>
+                      <span className="text-amber-400 font-semibold">Chưa có</span>
                     )}
                   </div>
                 </div>
-                {!import.meta.env.VITE_GITHUB_TOKEN && (
+                {(!import.meta.env.VITE_GITHUB_TOKEN || !import.meta.env.VITE_GITHUB_OWNER || !import.meta.env.VITE_GITHUB_REPO_NAME) && (
                   <p className="text-amber-200/80 text-[10px] mt-2 leading-relaxed bg-amber-500/10 p-2 rounded border border-amber-500/20">
                     💡 <b>MÔI TRƯỜNG KIỂM THỬ (AIS Preview)</b>: Do đây là cửa sổ thử nghiệm của AI Studio, app không có quyền truy cập vào biến môi trường của Cloudflare của bạn. Bạn hãy dán trực tiếp Token và Tên tài khoản, Repo vào các ô phía trên rổi bấm Lưu để test ngay nhé!
                   </p>
@@ -3766,7 +3778,7 @@ export default function App() {
             {/* ── Table ── */}
             {!loading && sb && (
               <>
-                <div className="bg-white rounded-2xl shadow-sm border border-slate-400 overflow-auto w-full max-h-[calc(100vh-340px)]">
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-400 overflow-auto w-full max-h-[calc(100vh-390px)]">
                   <table className="data-table">
                       <thead>
                         <tr>
